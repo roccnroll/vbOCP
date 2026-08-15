@@ -1,0 +1,16 @@
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+
+# Dati generati (rigenerabili dal codice)
+data/meshes/*
+data/snapshots/*
+!data/meshes/.gitkeep
+!data/snapshots/.gitkeep
+
+# Ambienti virtuali
+.venv/
+venv/
