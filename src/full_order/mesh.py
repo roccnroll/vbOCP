@@ -64,6 +64,7 @@ def load_mesh(mesh_dir, boundary_markers,method_order=1):
     return {
         "geometry_utilities": geometry_utilities,
         "mesh_utilities": mesh_utilities,
+        "mesh_data_raw": mesh_data_raw,   # tiene in vita i dati sottostanti a "mesh" (evita segfault da GC)
         "mesh": mesh,
         "mesh_geometric_data": mesh_geometric_data,
         "trial_ref": trial_ref,
