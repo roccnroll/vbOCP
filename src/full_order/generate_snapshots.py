@@ -5,6 +5,7 @@ Uso:
 """
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -63,6 +64,8 @@ def main():
     P = np.zeros((Nh, args.n_samples))
     U = np.zeros((Nh, args.n_samples))
 
+    start_time = time.time()
+
     for i in range(args.n_samples):
         mu1, mu2, mu_u = mu1_samples[i], mu2_samples[i], mu_u_samples[i]
 
@@ -74,8 +77,11 @@ def main():
         P[:, i] = pp
         U[:, i] = u
 
-        # barra di progresso su un'unica riga (\r), niente scroll con tanti campioni
-        print(f"\r  {i + 1}/{args.n_samples}", end="", flush=True)
+        # barra di progresso su un'unica riga (\r): x/N, tempo trascorso, tempo medio per snapshot
+        elapsed = time.time() - start_time
+        avg = elapsed / (i + 1)
+        print(f"\r  {i + 1}/{args.n_samples}  elapsed={elapsed:.1f}s  avg={avg:.2f}s/snapshot",
+              end="", flush=True)
 
     print()  # a capo dopo l'ultima riga di progresso
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
