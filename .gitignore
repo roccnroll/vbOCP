@@ -14,3 +14,7 @@ data/snapshots/*
 # Ambienti virtuali
 .venv/
 venv/
+
+# Output generati da notebook/script (plot, immagini)
+notebooks/output/
+notebooks/*.png

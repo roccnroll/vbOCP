@@ -1,4 +1,4 @@
-# vbOCP — varying-boundary Optimal Control Problem
+va # vbOCP — varying-boundary Optimal Control Problem
 
 Ricostruzione ed estensione di Strazzullo & Vicini (2023) su vbOCP
 parametrico: FOM, ROM (POD/DEIM), confronto con GNN e Autoencoder come
