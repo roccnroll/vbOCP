@@ -74,8 +74,10 @@ def main():
         P[:, i] = pp
         U[:, i] = u
 
-        print(f"  [{i + 1}/{args.n_samples}] mu1={mu1:.3f} mu2={mu2:.3f} mu_u={mu_u:.3f}")
+        # barra di progresso su un'unica riga (\r), niente scroll con tanti campioni
+        print(f"\r  {i + 1}/{args.n_samples}", end="", flush=True)
 
+    print()  # a capo dopo l'ultima riga di progresso
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         args.output,
