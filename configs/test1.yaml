@@ -1,0 +1,34 @@
+# Caso "test1": geometria rettangolare, Strazzullo & Vicini (2023)
+
+problem:
+  domain: [[0, 2], [0, 1]]     # Omega = [0,2] x [0,1]
+  alpha: 0.07
+
+  # sottodomini (dipendono da mu_u per Gamma_C / Gamma_N)
+  omega_obs:                    # regione di osservazione, fissa
+    - [[1, 2], [0.8, 1.0]]
+    - [[1, 2], [0.0, 0.2]]
+
+parameters:
+  mu1: {min: 6, max: 20}         # diffusione inversa
+  mu2: {min: 0.5, max: 3}        # ampiezza desired state
+  mu_u: {min: 0, max: 1}         # posizione bordo di controllo
+
+boundary_markers:                 # da mesh_conforming / mesh_uniform_corner_refined_ctrl
+  7:  {segment: "[0,1]x{0} bottom-left",  type: strong, value: "y=1,p=0"}
+  8:  {segment: "[1,2]x{0} bottom-right", type: weak,   note: "Neumann + C su Gamma_C"}
+  9:  {segment: "{2}x[0,1] destra",       type: weak,   note: "Neumann omogeneo"}
+  10: {segment: "[1,2]x{1} top-right",    type: weak,   note: "Neumann + C su Gamma_C"}
+  11: {segment: "[0,1]x{1} top-left",     type: strong, value: "y=1,p=0"}
+  12: {segment: "{0}x[0,1] sinistra",     type: strong, value: "y=1,p=0"}
+
+mesh:
+  standard: uniform_corner_refined_ctrl   # vedi handout.md §14
+  path: data/meshes/test1_uniform_corner_refined_ctrl
+  generation:
+    lc_uniform: 0.0288
+    lc_corner: 0.0015
+    dist_corner_max: 0.25
+    lc_neu: 0.008
+    dist_neu_max: 0.04
+  n_nodes: 5446
