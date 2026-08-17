@@ -68,10 +68,12 @@ def load_mesh(mesh_dir, boundary_markers,method_order=1):
         "mesh_geometric_data": mesh_geometric_data,
         "trial_ref": trial_ref,
         "test_ref": test_ref,
+        "trial_mesh_dofs_info": trial_mesh_dofs_info,   # <- riga nuova
         "trial_dofs_data": trial_dofs_data,
         "test_dofs_data": test_dofs_data,
         "Nh": Nh,
     }
+
 
 
 

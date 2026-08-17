@@ -145,6 +145,65 @@ def assemble_control_matrix(mesh_data, node_to_dof, mu_u, control_markers=(8, 10
 
     return csr_matrix((vals, (rows, cols)), shape=(Nh, Nh))
 
+def assemble_dirichlet_and_source(mesh_data, omega_obs_regions):
+    """Assembla i dati Dirichlet e il termine sorgente unitario (non scalato da mu2).
+
+    Args:
+        mesh_data: dict restituito da load_mesh()
+        omega_obs_regions: stessa lista di rettangoli usata in assemble_operators
+
+    Returns:
+        dict con u_D_y, u_D_p, yd_unit_vec
+        (yd_unit_vec va moltiplicato per mu2 nel solve: yd_vec = mu2 * yd_unit_vec)
+    """
+    # estrae dal dizionario di load_mesh i pezzi necessari
+    geometry_utilities     = mesh_data["geometry_utilities"]
+    mesh                   = mesh_data["mesh"]
+    mesh_geometric_data    = mesh_data["mesh_geometric_data"]
+    trial_mesh_dofs_info   = mesh_data["trial_mesh_dofs_info"]
+    trial_dofs_data        = mesh_data["trial_dofs_data"]
+    test_dofs_data         = mesh_data["test_dofs_data"]
+    trial_ref              = mesh_data["trial_ref"]
+    test_ref               = mesh_data["test_ref"]
+
+    assemble = polydim.pde_tools.assembler_utilities.pcc_2_d
+
+    # dati Dirichlet: y=1 e p=0 su tutto Gamma_D, non dipendono da mu
+    def dirichlet_y(marker, x, y, z):
+        return 1.0
+
+    def dirichlet_p(marker, x, y, z):
+        return 0.0
+
+    u_D_y = assemble.assemble_strong_solution(
+        geometry_utilities, mesh, mesh_geometric_data,
+        trial_mesh_dofs_info, trial_dofs_data, trial_ref,
+        dirichlet_y)
+
+    u_D_p = assemble.assemble_strong_solution(
+        geometry_utilities, mesh, mesh_geometric_data,
+        trial_mesh_dofs_info, trial_dofs_data, trial_ref,
+        dirichlet_p)
+
+    # indicatore di Omega_obs con valore 1.0 (non mu2): yd_vec = mu2 * yd_unit_vec si fa nel solve,
+    def yd_unit_function(x, y, z):
+        for x_range, y_range in omega_obs_regions:
+            if x_range[0] <= x <= x_range[1] and y_range[0] <= y <= y_range[1]:
+                return 1.0
+        return 0.0
+
+    yd_unit_vec = assemble.assemble_source_term(
+        geometry_utilities, mesh, mesh_geometric_data,
+        test_dofs_data, trial_ref, test_ref,
+        yd_unit_function)
+
+    return {
+        "u_D_y": u_D_y,
+        "u_D_p": u_D_p,
+        "yd_unit_vec": yd_unit_vec,
+    }
+
+
 
 
     
