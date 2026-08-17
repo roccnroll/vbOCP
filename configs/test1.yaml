@@ -15,6 +15,13 @@ parameters:
   mu_u: {min: 0, max: 1}         # posizione bordo di controllo
 
 boundary_markers:                 # da mesh_conforming / mesh_uniform_corner_refined_ctrl
+  0:  {segment: "bordo interno sottodominio", type: none}
+  1:  {segment: "bordo interno sottodominio", type: none}
+  2:  {segment: "bordo interno sottodominio", type: none}
+  3:  {segment: "bordo interno sottodominio", type: none}
+  4:  {segment: "bordo interno sottodominio", type: none}
+  5:  {segment: "bordo interno sottodominio", type: none}
+  6:  {segment: "bordo interno sottodominio", type: none}
   7:  {segment: "[0,1]x{0} bottom-left",  type: strong, value: "y=1,p=0"}
   8:  {segment: "[1,2]x{0} bottom-right", type: weak,   note: "Neumann + C su Gamma_C"}
   9:  {segment: "{2}x[0,1] destra",       type: weak,   note: "Neumann omogeneo"}
