@@ -26,8 +26,10 @@ def parse_args():
     parser.add_argument("--mu1", type=float, default=12.0)
     parser.add_argument("--mu2", type=float, default=2.5)
     parser.add_argument("--mu_u", type=float, default=0.99)
-    parser.add_argument("--plot", action="store_true", help="salva un plot PNG di stato e aggiunto")
-    parser.add_argument("--output", default="fom_solution.png", help="path del PNG (solo se --plot)")
+    parser.add_argument("--plot", action="store_true",
+                         help="mostra il plot di stato/aggiunto (salvato in un path di default)")
+    parser.add_argument("--save-plot", default=None,
+                         help="path dove salvare permanentemente il plot (opzionale, oltre a --plot)")
     return parser.parse_args()
 
 
@@ -107,8 +109,19 @@ def main():
     print(f"  controllo u: min={u.min():.4f}, max={u.max():.4f}")
 
     if args.plot:
+        import tempfile
+        # --plot da solo: salva in un path di default (non serve specificarlo)
+        # --save-plot: copia aggiuntiva in un path scelto, se la vuoi tenere
+        default_path = str(Path(tempfile.gettempdir()) / "fom_solution.png")
         plot_solution(mesh_data, operators, dirichlet_data, y, p,
-                      args.mu1, args.mu2, args.mu_u, args.output)
+                      args.mu1, args.mu2, args.mu_u, default_path)
+        print(f"PLOT_PATH={default_path}")
+
+        if args.save_plot:
+            import shutil
+            Path(args.save_plot).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(default_path, args.save_plot)
+            print(f"Plot salvato anche in {args.save_plot}")
 
 
 if __name__ == "__main__":
