@@ -20,10 +20,12 @@ def build_pod_basis(snapshot_matrix, inner_product, n_modes):
         eigenvalues: array (M,) tutti gli autovalori, ordine decrescente
             (utile per il plot di decadimento, non solo i primi N)
     """
-    # matrice di correlazione M x M, 
-    C = snapshot_matrix.T @ (inner_product @ snapshot_matrix)
+    # matrice di correlazione M x M, normalizzata per M come nell'eq. 17 del
+    # paper (l'errore medio di proiezione = somma degli autovalori solo se C
+    # include il fattore 1/M) - non cambia la base, solo la scala di lambda
+    M = snapshot_matrix.shape[1]
+    C = (snapshot_matrix.T @ (inner_product @ snapshot_matrix)) / M
 
-   
     eigenvalues, eigenvectors = np.linalg.eigh(C)
 
     # eigh ordina in modo crescente, 
@@ -40,7 +42,7 @@ def build_pod_basis(snapshot_matrix, inner_product, n_modes):
     return basis, eigenvalues
 
 
-def plot_eigenvalue_decay(eigenvalues_y, eigenvalues_p, output_path=None, max_n=150):
+def plot_eigenvalue_decay(eigenvalues_y, eigenvalues_p, output_path=None, max_n=80):
     """Plotta il decadimento degli autovalori POD per stato (y) e aggiunto (p).
 
     Confrontabile con il plot di destra di Figura 4 nel paper.
@@ -73,7 +75,7 @@ def plot_eigenvalue_decay(eigenvalues_y, eigenvalues_p, output_path=None, max_n=
 
     plt.tight_layout()
     if output_path is not None:
-        plt.savefig(output_path, dpi=150)
+        plt.savefig(output_path, dpi=80)
         print(f"Plot salvato in {output_path}")
     else:
         plt.show()
