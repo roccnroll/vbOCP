@@ -88,6 +88,29 @@ def build_pod_basis(snapshot_matrix, inner_product, n_modes):
     return basis, eigenvalues
 
 
+def project_onto_basis(snapshot_matrix, basis, inner_product):
+    """Proietta gli snapshot sulla base (proiezione di Galerkin), per il training della PODNN.
+
+    Stesso pattern del notebook del prof (Lab9/PODnn.ipynb, cella 39): il
+    target per la rete non e' il coefficiente "grezzo" della POD, ma la
+    proiezione di Galerkin di ciascuno snapshot sulla base, risolvendo
+    (B^T X B) u_rb = B^T X snapshot - piu' robusto della semplice B^T X
+    snapshot se la base non fosse perfettamente ortonormale.
+
+    Args:
+        snapshot_matrix: array (Nh, M) - una colonna per snapshot
+        basis: array (Nh, N) - base ridotta (da build_pod_basis)
+        inner_product: matrice (Nh, Nh) del prodotto scalare
+
+    Returns:
+        coeffs: array (N, M) - coefficienti ridotti, una colonna per snapshot
+    """
+    reduced_inner_product = basis.T @ (inner_product @ basis)  # (N, N)
+    rhs = basis.T @ (inner_product @ snapshot_matrix)  # (N, M)
+    coeffs = np.linalg.solve(reduced_inner_product, rhs)
+    return coeffs
+
+
 def plot_eigenvalue_decay(eigenvalues_y, eigenvalues_p, output_path=None, max_n=80):
     """Plotta il decadimento degli autovalori POD per stato (y) e aggiunto (p).
 

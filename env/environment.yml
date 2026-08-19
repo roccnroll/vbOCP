@@ -1,5 +1,6 @@
 name: vbocp
 channels:
+  - pytorch
   - conda-forge
 dependencies:
   - python=3.12
@@ -8,6 +9,8 @@ dependencies:
   - matplotlib
   - gmsh
   - pyyaml
+  - pytorch  # solo CPU per ora - GPU quando servira' per GNN/training piu' pesante
+  - cpuonly
   - pip
   - pip:
       - pypolydim
