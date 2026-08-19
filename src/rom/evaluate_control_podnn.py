@@ -52,16 +52,18 @@ def main():
     basis = model_data["basis"]
     n_modes = int(model_data["n_modes"])
 
-    print(f"Caricamento pesi rete da {args.weights} ...")
-    net = FFNN(input_dim=3, output_dim=n_modes)
-    net.load_state_dict(torch.load(args.weights))
-    net.eval()
-
     norm_path = str(Path(args.weights).with_suffix(".norm.npz"))
-    print(f"Caricamento statistiche di normalizzazione da {norm_path} ...")
+    print(f"Caricamento statistiche di normalizzazione e architettura da {norm_path} ...")
     norm_data = np.load(norm_path)
     x_stats = {"min": norm_data["x_min"], "max": norm_data["x_max"]}
     y_stats = {"mean": norm_data["y_mean"], "std": norm_data["y_std"]}
+    hidden_dim = int(norm_data["hidden_dim"])
+    n_hidden_layers = int(norm_data["n_hidden_layers"])
+
+    print(f"Caricamento pesi rete da {args.weights} (hidden_dim={hidden_dim}, n_hidden_layers={n_hidden_layers}) ...")
+    net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
+    net.load_state_dict(torch.load(args.weights))
+    net.eval()
 
     print(f"Caricamento test set da {args.test_snapshots} ...")
     test_data = np.load(args.test_snapshots)

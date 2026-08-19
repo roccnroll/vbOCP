@@ -64,12 +64,14 @@ def main():
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     torch.save(net.state_dict(), args.output)
 
-    # statistiche di normalizzazione salvate accanto ai pesi - servono a evaluate per de-normalizzare
+    # statistiche di normalizzazione + architettura salvate accanto ai pesi - servono a
+    # evaluate per de-normalizzare e per ricostruire la STESSA rete (stesse dimensioni)
     stats_path = str(Path(args.output).with_suffix(".norm.npz"))
     np.savez_compressed(
         stats_path,
         x_min=x_stats["min"], x_max=x_stats["max"],
         y_mean=y_stats["mean"], y_std=y_stats["std"],
+        hidden_dim=args.hidden_dim, n_hidden_layers=args.n_hidden_layers,
     )
     print(f"Pesi rete salvati in {args.output}")
     print(f"Statistiche di normalizzazione salvate in {stats_path}")
