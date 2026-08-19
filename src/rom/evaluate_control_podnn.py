@@ -1,12 +1,14 @@
 """CLI: valuta la PODNN del controllo su un test set (mai visto in training).
 
-Carica il modello salvato da train_control_podnn.py, predice u per i
-parametri del test set, confronta con u vero (FOM) - stesso pattern di
-validazione errore/speedup dei notebook del prof (Lab4/Lab9).
+Carica base POD (build_control_pod.py) e pesi rete (train_control_nn.py)
+separatamente, predice u per i parametri del test set, confronta con u
+vero (FOM) - stesso pattern di validazione errore/speedup dei notebook
+del prof (Lab4/Lab9).
 
 Uso:
     python -m src.rom.evaluate_control_podnn --config configs/test1.yaml \
-        --model data/snapshots/test1_control_podnn.npz \
+        --pod-model data/snapshots/test1_control_pod.npz \
+        --weights data/snapshots/test1_control_nn.pt \
         --test-snapshots data/snapshots/test1_test150.npz
 """
 import argparse
@@ -28,7 +30,8 @@ from src.dl.common import FFNN
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
-    parser.add_argument("--model", required=True, help="path al .npz salvato da train_control_podnn.py")
+    parser.add_argument("--pod-model", required=True, help="path al .npz da build_control_pod.py")
+    parser.add_argument("--weights", required=True, help="path ai pesi rete (.pt) da train_control_nn.py")
     parser.add_argument("--test-snapshots", required=True)
     return parser.parse_args()
 
@@ -44,13 +47,14 @@ def main():
     operators = assemble_operators(mesh_data, config["problem"]["omega_obs"])
     node_to_dof = operators["node_to_dof"]
 
-    print(f"Caricamento modello da {args.model} ...")
-    model_data = np.load(args.model)
+    print(f"Caricamento base POD da {args.pod_model} ...")
+    model_data = np.load(args.pod_model)
     basis = model_data["basis"]
     n_modes = int(model_data["n_modes"])
 
+    print(f"Caricamento pesi rete da {args.weights} ...")
     net = FFNN(input_dim=3, output_dim=n_modes)
-    net.load_state_dict(torch.load(str(Path(args.model).with_suffix(".pt"))))
+    net.load_state_dict(torch.load(args.weights))
     net.eval()
 
     print(f"Caricamento test set da {args.test_snapshots} ...")

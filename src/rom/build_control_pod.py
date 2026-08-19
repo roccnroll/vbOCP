@@ -1,22 +1,18 @@
-"""CLI: allena la PODNN per il controllo u (traccia 1D sul bordo Gamma_C/Gamma_N).
+"""CLI: costruisce la base POD del controllo u (traccia 1D sul bordo Gamma_C/Gamma_N).
 
-Pipeline (pattern del notebook del prof, Lab9/PODnn.ipynb):
-1. estrae la traccia di u sui nodi di bordo, mascherata a zero fuori Gamma_C
-2. base POD sulla traccia (prodotto scalare euclideo, curva 1D)
-3. proiezione di Galerkin degli snapshot sulla base (target di training)
-4. FFNN mu -> coefficienti proiettati
+Solo la fase POD - separata dal training della rete (train_control_nn.py)
+cosi' i parametri delle due fasi si controllano indipendentemente.
 
 Uso:
-    python -m src.rom.train_control_podnn --config configs/test1.yaml \
+    python -m src.rom.build_control_pod --config configs/test1.yaml \
         --snapshots data/snapshots/test1_300.npz \
-        --output data/snapshots/test1_control_podnn.npz
+        --output data/snapshots/test1_control_pod.npz
 """
 import argparse
 import sys
 from pathlib import Path
 
 import numpy as np
-import torch
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -28,7 +24,6 @@ from src.rom.pod import (
     compute_correlation_eigenvalues, select_n_modes, build_pod_basis,
     project_onto_basis, plot_eigenvalue_decay_curves,
 )
-from src.dl.common import FFNN, train_ffnn
 
 
 def parse_args():
@@ -37,8 +32,7 @@ def parse_args():
     parser.add_argument("--snapshots", required=True)
     parser.add_argument("--energy-threshold", type=float, default=0.9999)
     parser.add_argument("--max-modes", type=int, default=50)
-    parser.add_argument("--epochs", type=int, default=20000)
-    parser.add_argument("--output", required=True, help="path del .npz con base, coefficienti, pesi rete")
+    parser.add_argument("--output", required=True, help="path del .npz con base, coefficienti, mu di training")
     parser.add_argument("--plot", action="store_true",
                          help="mostra il plot di decadimento autovalori (salvato in un path di default)")
     parser.add_argument("--save-plot", default=None,
@@ -74,7 +68,7 @@ def main():
 
     if args.plot:
         import tempfile
-        default_path = str(Path(tempfile.gettempdir()) / "control_podnn_eigenvalue_decay.png")
+        default_path = str(Path(tempfile.gettempdir()) / "control_pod_eigenvalue_decay.png")
         plot_eigenvalue_decay_curves(
             {"Controllo (u)": eigenvalues}, output_path=default_path,
             title="Decadimento autovalori POD - controllo",
@@ -89,21 +83,13 @@ def main():
     basis, _ = build_pod_basis(U_boundary, inner_product, n_modes)
     coeffs = project_onto_basis(U_boundary, basis, inner_product)  # (n_modes, n_samples)
 
-    print("Training FFNN mu -> coefficienti POD(u) ...")
-    x_train = torch.tensor(np.stack([mu1, mu2, mu_u], axis=1), dtype=torch.float32)
-    y_train = torch.tensor(coeffs.T, dtype=torch.float32)  # (n_samples, n_modes)
-
-    net = FFNN(input_dim=3, output_dim=n_modes)
-    train_ffnn(net, x_train, y_train, epochs=args.epochs, lr_drop_epoch=args.epochs // 2)
-
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         args.output,
         boundary_x=boundary_x, basis=basis, n_modes=n_modes,
+        coeffs=coeffs, mu1=mu1, mu2=mu2, mu_u=mu_u,
     )
-    torch.save(net.state_dict(), str(Path(args.output).with_suffix(".pt")))
-    print(f"Base + coefficienti salvati in {args.output}")
-    print(f"Pesi rete salvati in {Path(args.output).with_suffix('.pt')}")
+    print(f"Base POD + coefficienti + mu di training salvati in {args.output}")
 
 
 if __name__ == "__main__":
