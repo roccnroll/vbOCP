@@ -111,34 +111,33 @@ def project_onto_basis(snapshot_matrix, basis, inner_product):
     return coeffs
 
 
-def plot_eigenvalue_decay(eigenvalues_y, eigenvalues_p, output_path=None, max_n=80):
-    """Plotta il decadimento degli autovalori POD per stato (y) e aggiunto (p).
+def plot_eigenvalue_decay_curves(curves, output_path=None, max_n=80, title="Decadimento autovalori POD"):
+    """Plotta il decadimento degli autovalori POD per una o piu' curve.
 
-    Confrontabile con il plot di destra di Figura 4 nel paper.
+    Generica: usata sia per stato/aggiunto (due curve) sia per il controllo
+    (una sola curva) - vedi plot_eigenvalue_decay per il caso a due curve.
 
     Args:
-        eigenvalues_y: array di autovalori per lo stato
-        eigenvalues_p: array di autovalori per l'aggiunto
-        output_path: se dato, salva il PNG invece di mostrarlo (utile da script)
-        max_n: numero massimo di autovalori mostrati nel plot (i piu' piccoli,
-            in coda, sono spesso solo rumore numerico e non interessano)
+        curves: dict {etichetta: array di autovalori}
+        output_path: se dato, salva il PNG invece di mostrarlo
+        max_n: numero massimo di autovalori mostrati (la coda e' spesso rumore)
+        title: titolo del plot
     """
     import matplotlib
     if output_path is not None:
         matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    eigenvalues_y = eigenvalues_y[:max_n]
-    eigenvalues_p = eigenvalues_p[:max_n]
-
     fig, ax = plt.subplots(figsize=(6, 4))
 
-    ax.semilogy(range(1, len(eigenvalues_y) + 1), eigenvalues_y, "o-", label="Stato (y)")
-    ax.semilogy(range(1, len(eigenvalues_p) + 1), eigenvalues_p, "s-", label="Aggiunto (p)")
+    markers = ["o-", "s-", "^-", "d-"]
+    for i, (label, eigenvalues) in enumerate(curves.items()):
+        eigenvalues = eigenvalues[:max_n]
+        ax.semilogy(range(1, len(eigenvalues) + 1), eigenvalues, markers[i % len(markers)], label=label)
 
     ax.set_xlabel("N")
     ax.set_ylabel(r"$\lambda_N$")
-    ax.set_title("Decadimento autovalori POD")
+    ax.set_title(title)
     ax.legend()
     ax.grid(True, which="both", alpha=0.3)
 
@@ -148,3 +147,22 @@ def plot_eigenvalue_decay(eigenvalues_y, eigenvalues_p, output_path=None, max_n=
         print(f"Plot salvato in {output_path}")
     else:
         plt.show()
+
+
+def plot_eigenvalue_decay(eigenvalues_y, eigenvalues_p, output_path=None, max_n=80):
+    """Plotta il decadimento degli autovalori POD per stato (y) e aggiunto (p).
+
+    Confrontabile con il plot di destra di Figura 4 nel paper. Wrapper di
+    plot_eigenvalue_decay_curves per il caso a due curve fisse.
+
+    Args:
+        eigenvalues_y: array di autovalori per lo stato
+        eigenvalues_p: array di autovalori per l'aggiunto
+        output_path: se dato, salva il PNG invece di mostrarlo (utile da script)
+        max_n: numero massimo di autovalori mostrati nel plot (i piu' piccoli,
+            in coda, sono spesso solo rumore numerico e non interessano)
+    """
+    plot_eigenvalue_decay_curves(
+        {"Stato (y)": eigenvalues_y, "Aggiunto (p)": eigenvalues_p},
+        output_path=output_path, max_n=max_n,
+    )

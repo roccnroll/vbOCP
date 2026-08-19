@@ -24,7 +24,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.control import extract_boundary_control_trace
-from src.rom.pod import compute_correlation_eigenvalues, select_n_modes, build_pod_basis, project_onto_basis
+from src.rom.pod import (
+    compute_correlation_eigenvalues, select_n_modes, build_pod_basis,
+    project_onto_basis, plot_eigenvalue_decay_curves,
+)
 from src.dl.common import FFNN, train_ffnn
 
 
@@ -36,6 +39,10 @@ def parse_args():
     parser.add_argument("--max-modes", type=int, default=50)
     parser.add_argument("--epochs", type=int, default=20000)
     parser.add_argument("--output", required=True, help="path del .npz con base, coefficienti, pesi rete")
+    parser.add_argument("--plot", action="store_true",
+                         help="mostra il plot di decadimento autovalori (salvato in un path di default)")
+    parser.add_argument("--save-plot", default=None,
+                         help="path dove salvare permanentemente il plot (opzionale, oltre a --plot)")
     return parser.parse_args()
 
 
@@ -64,6 +71,20 @@ def main():
     eigenvalues, _ = compute_correlation_eigenvalues(U_boundary, inner_product)
     n_modes = select_n_modes(eigenvalues, args.energy_threshold, args.max_modes)
     print(f"N modi scelto: {n_modes}")
+
+    if args.plot:
+        import tempfile
+        default_path = str(Path(tempfile.gettempdir()) / "control_podnn_eigenvalue_decay.png")
+        plot_eigenvalue_decay_curves(
+            {"Controllo (u)": eigenvalues}, output_path=default_path,
+            title="Decadimento autovalori POD - controllo",
+        )
+        print(f"PLOT_PATH={default_path}")
+        if args.save_plot:
+            import shutil
+            Path(args.save_plot).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(default_path, args.save_plot)
+            print(f"Plot salvato anche in {args.save_plot}")
 
     basis, _ = build_pod_basis(U_boundary, inner_product, n_modes)
     coeffs = project_onto_basis(U_boundary, basis, inner_product)  # (n_modes, n_samples)

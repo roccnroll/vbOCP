@@ -1,0 +1,85 @@
+"""CLI: valuta la PODNN del controllo su un test set (mai visto in training).
+
+Carica il modello salvato da train_control_podnn.py, predice u per i
+parametri del test set, confronta con u vero (FOM) - stesso pattern di
+validazione errore/speedup dei notebook del prof (Lab4/Lab9).
+
+Uso:
+    python -m src.rom.evaluate_control_podnn --config configs/test1.yaml \
+        --model data/snapshots/test1_control_podnn.npz \
+        --test-snapshots data/snapshots/test1_test150.npz
+"""
+import argparse
+import sys
+from pathlib import Path
+
+import numpy as np
+import torch
+import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from src.full_order.mesh import load_mesh
+from src.full_order.assembly import assemble_operators
+from src.rom.control import extract_boundary_control_trace
+from src.dl.common import FFNN
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", required=True)
+    parser.add_argument("--model", required=True, help="path al .npz salvato da train_control_podnn.py")
+    parser.add_argument("--test-snapshots", required=True)
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+
+    with open(args.config) as f:
+        config = yaml.safe_load(f)
+
+    print(f"Caricamento mesh da {config['mesh']['path']} ...")
+    mesh_data = load_mesh(config["mesh"]["path"], config["boundary_markers"])
+    operators = assemble_operators(mesh_data, config["problem"]["omega_obs"])
+    node_to_dof = operators["node_to_dof"]
+
+    print(f"Caricamento modello da {args.model} ...")
+    model_data = np.load(args.model)
+    basis = model_data["basis"]
+    n_modes = int(model_data["n_modes"])
+
+    net = FFNN(input_dim=3, output_dim=n_modes)
+    net.load_state_dict(torch.load(str(Path(args.model).with_suffix(".pt"))))
+    net.eval()
+
+    print(f"Caricamento test set da {args.test_snapshots} ...")
+    test_data = np.load(args.test_snapshots)
+    mu1, mu2, mu_u, U_true = test_data["mu1"], test_data["mu2"], test_data["mu_u"], test_data["U"]
+
+    print("Estrazione traccia di controllo vera (test set) ...")
+    boundary_x_test, U_boundary_true = extract_boundary_control_trace(mesh_data, node_to_dof, U_true, mu_u)
+
+    # coerenza: la traccia di bordo deve avere gli stessi nodi (stessa mesh) del training
+    if not np.allclose(boundary_x_test, model_data["boundary_x"]):
+        raise ValueError("I nodi di bordo del test set non coincidono con quelli del modello - mesh diversa?")
+
+    print("Predizione con la PODNN ...")
+    x_test = torch.tensor(np.stack([mu1, mu2, mu_u], axis=1), dtype=torch.float32)
+    with torch.no_grad():
+        coeffs_pred = net(x_test).numpy()  # (n_samples, n_modes)
+
+    U_boundary_pred = basis @ coeffs_pred.T  # (n_boundary_nodes, n_samples)
+
+    # errore relativo per campione, norma euclidea (stesso prodotto scalare usato in training)
+    errors = np.linalg.norm(U_boundary_pred - U_boundary_true, axis=0)
+    norms = np.linalg.norm(U_boundary_true, axis=0)
+    relative_errors = errors / np.where(norms > 0, norms, 1.0)
+
+    print(f"Errore relativo medio: {relative_errors.mean():.4e}")
+    print(f"Errore relativo mediano: {np.median(relative_errors):.4e}")
+    print(f"Errore relativo max: {relative_errors.max():.4e}")
+
+
+if __name__ == "__main__":
+    main()
