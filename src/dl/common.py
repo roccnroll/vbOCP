@@ -1,5 +1,61 @@
+import numpy as np
 import torch
 import torch.nn as nn
+
+
+def compute_minmax_stats(x):
+    """Statistiche min-max per colonna, per normalize_minmax/denormalize_minmax.
+
+    Args:
+        x: array (n_samples, n_features)
+
+    Returns:
+        dict con 'min' e 'max', array (n_features,)
+    """
+    return {"min": x.min(axis=0), "max": x.max(axis=0)}
+
+
+def normalize_minmax(x, stats):
+    """Porta x in [-1, 1] per colonna, usando le statistiche di compute_minmax_stats.
+
+    Adatto agli input di una rete con attivazioni Tanh (che satura per input grandi).
+    """
+    range_ = stats["max"] - stats["min"]
+    range_ = np.where(range_ > 0, range_, 1.0)  # evita divisione per zero se una colonna e' costante
+    return 2.0 * (x - stats["min"]) / range_ - 1.0
+
+
+def denormalize_minmax(x_norm, stats):
+    """Inverte normalize_minmax."""
+    range_ = stats["max"] - stats["min"]
+    return (x_norm + 1.0) / 2.0 * range_ + stats["min"]
+
+
+def compute_standard_stats(x):
+    """Statistiche media/deviazione standard per colonna, per normalize_standard/denormalize_standard.
+
+    Args:
+        x: array (n_samples, n_features)
+
+    Returns:
+        dict con 'mean' e 'std', array (n_features,)
+    """
+    return {"mean": x.mean(axis=0), "std": x.std(axis=0)}
+
+
+def normalize_standard(x, stats):
+    """Standardizza x per colonna (media 0, dev. standard 1).
+
+    Adatto a target come i coefficienti POD, che possono avere scale molto
+    diverse tra loro (i primi modi hanno coefficienti piu' grandi degli ultimi).
+    """
+    std = np.where(stats["std"] > 0, stats["std"], 1.0)  # evita divisione per zero
+    return (x - stats["mean"]) / std
+
+
+def denormalize_standard(x_norm, stats):
+    """Inverte normalize_standard."""
+    return x_norm * stats["std"] + stats["mean"]
 
 
 class FFNN(nn.Module):

@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.control import extract_boundary_control_trace
-from src.dl.common import FFNN
+from src.dl.common import FFNN, normalize_minmax, denormalize_standard
 
 
 def parse_args():
@@ -57,6 +57,12 @@ def main():
     net.load_state_dict(torch.load(args.weights))
     net.eval()
 
+    norm_path = str(Path(args.weights).with_suffix(".norm.npz"))
+    print(f"Caricamento statistiche di normalizzazione da {norm_path} ...")
+    norm_data = np.load(norm_path)
+    x_stats = {"min": norm_data["x_min"], "max": norm_data["x_max"]}
+    y_stats = {"mean": norm_data["y_mean"], "std": norm_data["y_std"]}
+
     print(f"Caricamento test set da {args.test_snapshots} ...")
     test_data = np.load(args.test_snapshots)
     mu1, mu2, mu_u, U_true = test_data["mu1"], test_data["mu2"], test_data["mu_u"], test_data["U"]
@@ -69,9 +75,13 @@ def main():
         raise ValueError("I nodi di bordo del test set non coincidono con quelli del modello - mesh diversa?")
 
     print("Predizione con la PODNN ...")
-    x_test = torch.tensor(np.stack([mu1, mu2, mu_u], axis=1), dtype=torch.float32)
+    x_raw = np.stack([mu1, mu2, mu_u], axis=1)
+    x_norm = normalize_minmax(x_raw, x_stats)
+    x_test = torch.tensor(x_norm, dtype=torch.float32)
     with torch.no_grad():
-        coeffs_pred = net(x_test).numpy()  # (n_samples, n_modes)
+        coeffs_pred_norm = net(x_test).numpy()  # (n_samples, n_modes), normalizzati
+
+    coeffs_pred = denormalize_standard(coeffs_pred_norm, y_stats)
 
     U_boundary_pred = basis @ coeffs_pred.T  # (n_boundary_nodes, n_samples)
 
