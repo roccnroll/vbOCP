@@ -1,9 +1,8 @@
 """CLI: costruisce la base POD (stato e aggiunto) da uno snapshot .npz.
 
-N scelto automaticamente in base a una soglia di energia cumulata (non piu'
-fisso): calcolato separatamente per stato e aggiunto, poi si usa il piu'
-grande dei due per costruire entrambe le basi con lo stesso N (necessario
-per lo spazio aggregato dei passi successivi).
+N scelto automaticamente in base a una soglia di energia cumulata,
+indipendentemente per stato e aggiunto (non piu' forzati allo stesso N -
+approccio non intrusivo, ogni base ha la propria dimensione naturale).
 
 Uso:
     python -m src.rom.train_pod --config configs/test1.yaml \
@@ -73,18 +72,17 @@ def main():
 
     n_y = select_n_modes(eig_y, args.energy_threshold, args.max_modes)
     n_p = select_n_modes(eig_p, args.energy_threshold, args.max_modes)
-    n_modes = max(n_y, n_p)
-    print(f"N scelto: stato={n_y}, aggiunto={n_p} -> uso N={n_modes} per entrambi")
+    print(f"N scelto: stato={n_y}, aggiunto={n_p} (indipendenti)")
 
-    basis_y, _ = build_pod_basis(Y, X, n_modes)
-    basis_p, _ = build_pod_basis(P, X, n_modes)
+    basis_y, _ = build_pod_basis(Y, X, n_y)
+    basis_p, _ = build_pod_basis(P, X, n_p)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         args.output,
         basis_y=basis_y, basis_p=basis_p,
         eigenvalues_y=eig_y, eigenvalues_p=eig_p,
-        inner_product=args.inner_product, n_modes=n_modes,
+        inner_product=args.inner_product, n_modes_y=n_y, n_modes_p=n_p,
     )
     print(f"Base POD salvata in {args.output}")
 
