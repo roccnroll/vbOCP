@@ -30,18 +30,22 @@ from src.rom.inner_product import assemble_full_mass_matrix
 from src.dl.common import FFNN, normalize_minmax, denormalize_standard
 
 
-def load_field_net(weights_path, n_modes):
+def load_field_net(weights_path):
+    """Carica rete + statistiche. n_modes letto dal .norm.npz (quanti ne ha effettivamente
+    usati il training, puo' essere < di quelli disponibili nel pod-model se --n-modes
+    e' stato passato esplicitamente a train_reduced_nn.py)."""
     norm_path = str(Path(weights_path).with_suffix(".norm.npz"))
     norm_data = np.load(norm_path)
     x_stats = {"min": norm_data["x_min"], "max": norm_data["x_max"]}
     y_stats = {"mean": norm_data["y_mean"], "std": norm_data["y_std"]}
     hidden_dim = int(norm_data["hidden_dim"])
     n_hidden_layers = int(norm_data["n_hidden_layers"])
+    n_modes = int(norm_data["n_modes"])
 
     net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
     net.load_state_dict(torch.load(weights_path))
     net.eval()
-    return net, x_stats, y_stats
+    return net, x_stats, y_stats, n_modes
 
 
 def relative_error(true, pred, norm_matrix):
@@ -89,12 +93,16 @@ def main():
     print(f"Caricamento base POD da {args.pod_model} ...")
     pod_data = np.load(args.pod_model)
     basis_y, basis_p = pod_data["basis_y"], pod_data["basis_p"]
-    n_modes_y, n_modes_p = int(pod_data["n_modes_y"]), int(pod_data["n_modes_p"])
 
     print(f"Caricamento rete stato da {args.weights_y} ...")
-    net_y, x_stats_y, y_stats_y = load_field_net(args.weights_y, n_modes_y)
+    net_y, x_stats_y, y_stats_y, n_modes_y = load_field_net(args.weights_y)
     print(f"Caricamento rete aggiunto da {args.weights_p} ...")
-    net_p, x_stats_p, y_stats_p = load_field_net(args.weights_p, n_modes_p)
+    net_p, x_stats_p, y_stats_p, n_modes_p = load_field_net(args.weights_p)
+
+    # tronca la base ai primi N modi usati in training (puo' essere < dei modi disponibili
+    # nel pod-model se e' stato passato --n-modes esplicito a train_reduced_nn.py)
+    basis_y, basis_p = basis_y[:, :n_modes_y], basis_p[:, :n_modes_p]
+    print(f"N modi usati - stato: {n_modes_y}  aggiunto: {n_modes_p}")
 
     print(f"Caricamento test set da {args.test_snapshots} ...")
     test_data = np.load(args.test_snapshots)

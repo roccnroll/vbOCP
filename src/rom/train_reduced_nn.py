@@ -36,6 +36,10 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=30)
     parser.add_argument("--n-hidden-layers", type=int, default=4)
+    parser.add_argument("--n-modes", type=int, default=None,
+                         help="numero di modi da usare (default: tutti quelli scelti dalla POD via "
+                              "soglia di energia, n_modes_<field> nel pod-model). Se dato, deve essere "
+                              "<= al numero disponibile - tronca ai primi N modi (i piu' energetici)")
     parser.add_argument("--output", required=True, help="path dove salvare i pesi della rete (.pt)")
     return parser.parse_args()
 
@@ -47,7 +51,20 @@ def main():
     pod_data = np.load(args.pod_model)
     coeffs = pod_data[f"coeffs_{args.field}"]  # (n_modes, n_samples)
     mu1, mu2, mu_u = pod_data["mu1"], pod_data["mu2"], pod_data["mu_u"]
-    n_modes = int(pod_data[f"n_modes_{args.field}"])
+    n_modes_available = int(pod_data[f"n_modes_{args.field}"])
+
+    if args.n_modes is not None:
+        if args.n_modes > n_modes_available:
+            raise ValueError(
+                f"--n-modes {args.n_modes} > modi disponibili nel pod-model ({n_modes_available}) - "
+                f"ricostruisci la base POD con piu' modi se ne servono di piu'."
+            )
+        n_modes = args.n_modes
+        coeffs = coeffs[:n_modes, :]  # primi N modi = i piu' energetici (ordinati per autovalore decrescente)
+        print(f"N modi: {n_modes} (esplicito, su {n_modes_available} disponibili)")
+    else:
+        n_modes = n_modes_available
+        print(f"N modi: {n_modes} (automatico, dalla soglia di energia della POD)")
 
     x_raw = np.stack([mu1, mu2, mu_u], axis=1)
     y_raw = coeffs.T  # (n_samples, n_modes)
@@ -78,6 +95,7 @@ def main():
         x_min=x_stats["min"], x_max=x_stats["max"],
         y_mean=y_stats["mean"], y_std=y_stats["std"],
         hidden_dim=args.hidden_dim, n_hidden_layers=args.n_hidden_layers,
+        n_modes=n_modes,
     )
     print(f"Pesi rete salvati in {args.output}")
     print(f"Statistiche di normalizzazione salvate in {stats_path}")

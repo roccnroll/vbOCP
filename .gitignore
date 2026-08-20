@@ -11,6 +11,11 @@ data/snapshots/*
 !data/meshes/.gitkeep
 !data/snapshots/.gitkeep
 
+# eccezione: mesh usata da configs/test1.yaml, tenuta nel repo (~1.5MB) cosi'
+# non serve rigenerarla (script di generazione non e' un CLI legato al config)
+!data/meshes/test1_uniform_corner_refined_ctrl/
+!data/meshes/test1_uniform_corner_refined_ctrl/*.csv
+
 # Ambienti virtuali
 .venv/
 venv/

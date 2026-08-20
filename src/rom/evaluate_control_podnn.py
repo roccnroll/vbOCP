@@ -50,7 +50,6 @@ def main():
     print(f"Caricamento base POD da {args.pod_model} ...")
     model_data = np.load(args.pod_model)
     basis = model_data["basis_u"]
-    n_modes = int(model_data["n_modes_u"])
 
     norm_path = str(Path(args.weights).with_suffix(".norm.npz"))
     print(f"Caricamento statistiche di normalizzazione e architettura da {norm_path} ...")
@@ -59,6 +58,10 @@ def main():
     y_stats = {"mean": norm_data["y_mean"], "std": norm_data["y_std"]}
     hidden_dim = int(norm_data["hidden_dim"])
     n_hidden_layers = int(norm_data["n_hidden_layers"])
+    # n_modes letto dal .norm.npz (quanti ne ha effettivamente usati il training, puo'
+    # essere < di quelli disponibili nel pod-model se --n-modes e' stato passato esplicito)
+    n_modes = int(norm_data["n_modes"])
+    basis = basis[:, :n_modes]
 
     print(f"Caricamento pesi rete da {args.weights} (hidden_dim={hidden_dim}, n_hidden_layers={n_hidden_layers}) ...")
     net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
