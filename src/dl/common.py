@@ -79,8 +79,14 @@ class FFNN(nn.Module):
 
 
 def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None, lr_drop_factor=0.1,
-               tol=1e-5, print_every=2000):
+               tol=1e-5, print_every=2000, device=None):
     """Allena una FFNN con Adam + MSE, full-batch, come nel notebook del prof.
+
+    Usa la GPU se disponibile (rilevata automaticamente), altrimenti CPU -
+    nessuna differenza di comportamento per chi chiama, solo piu' veloce se
+    c'e' una GPU. Il modello viene riportato su CPU prima di essere
+    restituito, cosi' salvataggio/valutazione altrove restano invariati
+    (sempre su CPU).
 
     Args:
         net: modello (es. FFNN)
@@ -91,10 +97,18 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
         lr_drop_factor: fattore di riduzione del lr
         tol: soglia di loss sotto la quale ci si ferma prima delle epoche massime
         print_every: ogni quante epoche stampare la loss
+        device: "cuda"/"cpu"/None (None = auto-rileva se la GPU e' disponibile)
 
     Returns:
-        net allenato (stesso oggetto, modificato in place)
+        net allenato, riportato su CPU
     """
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    net = net.to(device)
+    x_train = x_train.to(device)
+    y_train = y_train.to(device)
+
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
 
@@ -115,6 +129,6 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
 
         loss_value = loss.item()
         if epoch % print_every == 0:
-            print(f"  epoch {epoch}  loss {loss_value:.6e}  lr {optimizer.param_groups[0]['lr']:.1e}")
+            print(f"  epoch {epoch}  loss {loss_value:.6e}  lr {optimizer.param_groups[0]['lr']:.1e}  device {device}")
 
-    return net
+    return net.to("cpu")

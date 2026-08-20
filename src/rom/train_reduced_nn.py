@@ -65,7 +65,7 @@ def main():
     y_train = torch.tensor(y_norm, dtype=torch.float32)
 
     net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=args.hidden_dim, n_hidden_layers=args.n_hidden_layers)
-    train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr, lr_drop_epoch=args.epochs // 2)
+    net = train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr, lr_drop_epoch=args.epochs // 2)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     torch.save(net.state_dict(), args.output)
