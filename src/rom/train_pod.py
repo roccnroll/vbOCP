@@ -23,7 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.inner_product import assemble_full_mass_matrix
-from src.rom.pod import build_pod_basis, compute_correlation_eigenvalues, select_n_modes, plot_eigenvalue_decay
+from src.rom.pod import (
+    build_pod_basis, compute_correlation_eigenvalues, select_n_modes,
+    plot_eigenvalue_decay, project_onto_basis,
+)
 
 
 def parse_args():
@@ -64,6 +67,7 @@ def main():
     print(f"Caricamento snapshot da {args.snapshots} ...")
     data = np.load(args.snapshots)
     Y, P = data["Y"], data["P"]
+    mu1, mu2, mu_u = data["mu1"], data["mu2"], data["mu_u"]
     print(f"Y shape: {Y.shape}, P shape: {P.shape}")
 
     # autovalori (non dipendono da N): servono per scegliere N e per il plot
@@ -77,11 +81,18 @@ def main():
     basis_y, _ = build_pod_basis(Y, X, n_y)
     basis_p, _ = build_pod_basis(P, X, n_p)
 
+    # proiezione di Galerkin degli snapshot sulle basi (target di training per la PODNN,
+    # stesso pattern gia' usato per il controllo)
+    coeffs_y = project_onto_basis(Y, basis_y, X)  # (n_y, n_samples)
+    coeffs_p = project_onto_basis(P, basis_p, X)  # (n_p, n_samples)
+
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         args.output,
         basis_y=basis_y, basis_p=basis_p,
         eigenvalues_y=eig_y, eigenvalues_p=eig_p,
+        coeffs_y=coeffs_y, coeffs_p=coeffs_p,
+        mu1=mu1, mu2=mu2, mu_u=mu_u,
         inner_product=args.inner_product, n_modes_y=n_y, n_modes_p=n_p,
     )
     print(f"Base POD salvata in {args.output}")

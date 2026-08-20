@@ -1,14 +1,14 @@
 """CLI: valuta la PODNN del controllo su un test set (mai visto in training).
 
-Carica base POD (build_control_pod.py) e pesi rete (train_control_nn.py)
-separatamente, predice u per i parametri del test set, confronta con u
-vero (FOM) - stesso pattern di validazione errore/speedup dei notebook
-del prof (Lab4/Lab9).
+Carica base POD (build_control_pod.py) e pesi rete (train_reduced_nn.py
+--field u) separatamente, predice u per i parametri del test set,
+confronta con u vero (FOM) - stesso pattern di validazione errore/speedup
+dei notebook del prof (Lab4/Lab9).
 
 Uso:
     python -m src.rom.evaluate_control_podnn --config configs/test1.yaml \
         --pod-model data/snapshots/test1_control_pod.npz \
-        --weights data/snapshots/test1_control_nn.pt \
+        --weights data/snapshots/test1_u_nn.pt \
         --test-snapshots data/snapshots/test1_test150.npz
 """
 import argparse
@@ -31,7 +31,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--pod-model", required=True, help="path al .npz da build_control_pod.py")
-    parser.add_argument("--weights", required=True, help="path ai pesi rete (.pt) da train_control_nn.py")
+    parser.add_argument("--weights", required=True, help="path ai pesi rete (.pt) da train_reduced_nn.py")
     parser.add_argument("--test-snapshots", required=True)
     return parser.parse_args()
 
@@ -49,8 +49,8 @@ def main():
 
     print(f"Caricamento base POD da {args.pod_model} ...")
     model_data = np.load(args.pod_model)
-    basis = model_data["basis"]
-    n_modes = int(model_data["n_modes"])
+    basis = model_data["basis_u"]
+    n_modes = int(model_data["n_modes_u"])
 
     norm_path = str(Path(args.weights).with_suffix(".norm.npz"))
     print(f"Caricamento statistiche di normalizzazione e architettura da {norm_path} ...")

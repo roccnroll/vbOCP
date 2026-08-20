@@ -46,7 +46,7 @@ def main():
 
     print(f"Caricamento base POD da {args.pod_model} ...")
     pod_data = np.load(args.pod_model)
-    basis = pod_data["basis"]
+    basis = pod_data["basis_u"]
 
     print(f"Caricamento test set da {args.test_snapshots} ...")
     test_data = np.load(args.test_snapshots)

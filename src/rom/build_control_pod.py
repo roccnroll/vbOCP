@@ -1,6 +1,6 @@
 """CLI: costruisce la base POD del controllo u (traccia 1D sul bordo Gamma_C/Gamma_N).
 
-Solo la fase POD - separata dal training della rete (train_control_nn.py)
+Solo la fase POD - separata dal training della rete (train_reduced_nn.py)
 cosi' i parametri delle due fasi si controllano indipendentemente.
 
 Uso:
@@ -83,11 +83,13 @@ def main():
     basis, _ = build_pod_basis(U_boundary, inner_product, n_modes)
     coeffs = project_onto_basis(U_boundary, basis, inner_product)  # (n_modes, n_samples)
 
+    # nomi delle chiavi con suffisso _u, stesso schema di stato/aggiunto (basis_y/coeffs_y/n_modes_y
+    # in train_pod.py) - permette di riusare uno script di training generico per y, p, u
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         args.output,
-        boundary_x=boundary_x, basis=basis, n_modes=n_modes,
-        coeffs=coeffs, mu1=mu1, mu2=mu2, mu_u=mu_u,
+        boundary_x=boundary_x, basis_u=basis, n_modes_u=n_modes,
+        coeffs_u=coeffs, mu1=mu1, mu2=mu2, mu_u=mu_u,
     )
     print(f"Base POD + coefficienti + mu di training salvati in {args.output}")
 

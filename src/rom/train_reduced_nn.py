@@ -1,11 +1,14 @@
-"""CLI: allena la FFNN mu -> coefficienti POD(u), a partire dalla base gia' costruita.
+"""CLI: allena la FFNN mu -> coefficienti POD, per una variabile a scelta (y, p, u).
 
-Solo la fase di training - separata dalla POD (build_control_pod.py) cosi'
-si puo' riallenare con parametri diversi senza ricostruire la base.
+Script generico - sostituisce train_control_nn.py: funziona su qualunque
+file .npz con chiavi f"coeffs_{field}", f"n_modes_{field}", mu1, mu2, mu_u
+(prodotto da train_pod.py per y/p, o build_control_pod.py per u). Solo la
+fase di training - separata dalla POD cosi' si puo' riallenare con
+parametri diversi senza ricostruire la base.
 
 Uso:
-    python -m src.rom.train_control_nn --pod-model data/snapshots/test1_control_pod.npz \
-        --output data/snapshots/test1_control_nn.pt
+    python -m src.rom.train_reduced_nn --pod-model data/snapshots/test1_pod.npz \
+        --field y --output data/snapshots/test1_y_nn.pt
 """
 import argparse
 import sys
@@ -25,7 +28,10 @@ from src.dl.common import (
 
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--pod-model", required=True, help="path al .npz da build_control_pod.py")
+    parser.add_argument("--pod-model", required=True,
+                         help="path al .npz da train_pod.py o build_control_pod.py")
+    parser.add_argument("--field", required=True, choices=["y", "p", "u"],
+                         help="quale variabile allenare (legge coeffs_<field>/n_modes_<field>)")
     parser.add_argument("--epochs", type=int, default=20000)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--hidden-dim", type=int, default=30)
@@ -37,11 +43,11 @@ def parse_args():
 def main():
     args = parse_args()
 
-    print(f"Caricamento base POD da {args.pod_model} ...")
+    print(f"Caricamento base POD da {args.pod_model} (campo: {args.field}) ...")
     pod_data = np.load(args.pod_model)
-    coeffs = pod_data["coeffs"]  # (n_modes, n_samples)
+    coeffs = pod_data[f"coeffs_{args.field}"]  # (n_modes, n_samples)
     mu1, mu2, mu_u = pod_data["mu1"], pod_data["mu2"], pod_data["mu_u"]
-    n_modes = int(pod_data["n_modes"])
+    n_modes = int(pod_data[f"n_modes_{args.field}"])
 
     x_raw = np.stack([mu1, mu2, mu_u], axis=1)
     y_raw = coeffs.T  # (n_samples, n_modes)
@@ -54,7 +60,7 @@ def main():
     x_norm = normalize_minmax(x_raw, x_stats)
     y_norm = normalize_standard(y_raw, y_stats)
 
-    print("Training FFNN mu -> coefficienti POD(u) (normalizzati) ...")
+    print(f"Training FFNN mu -> coefficienti POD({args.field}) (normalizzati) ...")
     x_train = torch.tensor(x_norm, dtype=torch.float32)
     y_train = torch.tensor(y_norm, dtype=torch.float32)
 
