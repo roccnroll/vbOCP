@@ -1,16 +1,27 @@
-"""CLI: errore di ricostruzione della SOLA POD (proiezione di Galerkin, senza rete) al variare di N.
+"""CLI: errore di ricostruzione della SOLA POD (proiezione di Galerkin) al variare di N,
+con plot combinato contro un CSV di PODNN gia' calcolato (src/rom/sweep_pod_nn.py).
 
-Nessun training - solo algebra lineare, quindi molto piu' veloce dello
-sweep con rete (sweep_pod_nn.py). Utile per verificare che l'errore della
-PODNN sia sempre >= dell'errore della sola POD allo stesso N (la
-proiezione di Galerkin e' la miglior ricostruzione possibile con N modi -
-la rete puo' solo aggiungere errore, mai toglierne).
+Nessun training qui - solo algebra lineare, quindi veloce anche per molti
+valori di N. Se gli viene passato --podnn-csv (il csv gia' prodotto da
+sweep_pod_nn.py, NON rifatto qui), il plot combina le due curve (solo POD
+vs PODNN) sulla stessa griglia di N - il confronto va fatto sulla stessa
+lista di N passata a entrambi gli script, ma il training della PODNN resta
+un run separato e non viene mai ripetuto da questo script.
 
-Uso:
+Uso (solo curva POD):
     python -m src.rom.sweep_pod_error --config configs/test1.yaml \
         --snapshots data/snapshots/test1_300.npz \
         --test-snapshots data/snapshots/test1_test150.npz \
-        --values 1,2,3,4,5,10,20,30,50,75,100,150 \
+        --values 5,7,9,11,13,15,17,20 \
+        --output data/snapshots/sweep_pod_error.csv
+
+Uso (con confronto PODNN, gia' calcolato separatamente con sweep_pod_nn.py
+sulla STESSA lista di --values):
+    python -m src.rom.sweep_pod_error --config configs/test1.yaml \
+        --snapshots data/snapshots/test1_300.npz \
+        --test-snapshots data/snapshots/test1_test150.npz \
+        --values 5,7,9,11,13,15,17,20 \
+        --podnn-csv data/snapshots/sweep_n_modes.csv \
         --output data/snapshots/sweep_pod_error.csv
 """
 import argparse
@@ -36,6 +47,10 @@ def parse_args():
     parser.add_argument("--test-snapshots", required=True)
     parser.add_argument("--inner-product", choices=["seminorm", "full"], default="seminorm")
     parser.add_argument("--values", required=True, help="valori di N separati da virgola")
+    parser.add_argument("--podnn-csv", default=None,
+                         help="opzionale: csv gia' prodotto da sweep_pod_nn.py (colonne n_modes, err_y, "
+                              "err_p) sulla STESSA lista di --values - se dato, il plot combina le due "
+                              "curve; il training della PODNN NON viene rifatto qui")
     parser.add_argument("--output", required=True, help="path del .csv con i risultati")
     return parser.parse_args()
 
@@ -48,6 +63,11 @@ def relative_error(true, pred, norm_matrix):
     errors = np.sqrt(np.abs(err_sq))
     norms = np.sqrt(np.abs(true_sq))
     return errors / np.where(norms > 0, norms, 1.0)
+
+
+def read_csv(path):
+    with open(path) as f:
+        return list(csv.DictReader(f))
 
 
 def main():
@@ -102,14 +122,43 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(6, 4))
-    ax.semilogy(values, [r["err_y_pod"] for r in rows], "o-", label="Stato (y) - solo POD")
-    ax.semilogy(values, [r["err_p_pod"] for r in rows], "s-", label="Aggiunto (p) - solo POD")
-    ax.set_xlabel("N modi")
-    ax.set_ylabel(f"errore relativo ricostruzione ({args.inner_product})")
-    ax.set_title("Errore di ricostruzione POD (proiezione di Galerkin, senza rete)")
-    ax.legend()
-    ax.grid(True, which="both", alpha=0.3)
+
+    podnn_rows = None
+    if args.podnn_csv is not None:
+        podnn_rows = read_csv(args.podnn_csv)
+        n_podnn = [int(r["n_modes"]) for r in podnn_rows]
+        if n_podnn != values:
+            print(f"ATTENZIONE: --values ({values}) diverso da n_modes nel podnn-csv ({n_podnn}) - "
+                  f"il confronto sul grafico potrebbe non essere sulla stessa griglia di N.")
+
+    if podnn_rows is not None:
+        fig, axes = plt.subplots(1, 2, figsize=(11, 4), sharex=True)
+        n_podnn = [int(r["n_modes"]) for r in podnn_rows]
+
+        axes[0].semilogy(values, [r["err_y_pod"] for r in rows], "o--", label="solo POD")
+        axes[0].semilogy(n_podnn, [float(r["err_y"]) for r in podnn_rows], "s-", label="PODNN")
+        axes[0].set_title("Stato (y)")
+        axes[0].set_xlabel("N modi")
+        axes[0].set_ylabel(f"errore relativo ({args.inner_product})")
+        axes[0].legend()
+        axes[0].grid(True, which="both", alpha=0.3)
+
+        axes[1].semilogy(values, [r["err_p_pod"] for r in rows], "o--", label="solo POD")
+        axes[1].semilogy(n_podnn, [float(r["err_p"]) for r in podnn_rows], "s-", label="PODNN")
+        axes[1].set_title("Aggiunto (p)")
+        axes[1].set_xlabel("N modi")
+        axes[1].legend()
+        axes[1].grid(True, which="both", alpha=0.3)
+    else:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.semilogy(values, [r["err_y_pod"] for r in rows], "o-", label="Stato (y) - solo POD")
+        ax.semilogy(values, [r["err_p_pod"] for r in rows], "s-", label="Aggiunto (p) - solo POD")
+        ax.set_xlabel("N modi")
+        ax.set_ylabel(f"errore relativo ricostruzione ({args.inner_product})")
+        ax.set_title("Errore di ricostruzione POD (proiezione di Galerkin, senza rete)")
+        ax.legend()
+        ax.grid(True, which="both", alpha=0.3)
+
     plt.tight_layout()
     plt.savefig(plot_path, dpi=80)
     print(f"Plot salvato in {plot_path}")
