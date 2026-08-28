@@ -56,6 +56,23 @@ def reconstruct_full_field(dof_field, node_to_dof):
     return full
 
 
+def restrict_to_dof(full_field, node_to_dof):
+    """Inversa di reconstruct_full_field: da un campo su tutti i nodi mesh (num_nodes,)
+    o (num_nodes, n) estrae i soli DOF liberi, nell'ordine di indicizzazione DOF (Nh,)
+    o (Nh, n) - serve per confrontare l'output della GNN (spazio mesh completo) con
+    M_full/A_diff, che sono assemblate in spazio DOF ridotto (stesso usato dalla POD)."""
+    free = node_to_dof >= 0
+    n_dof = node_to_dof[free].max() + 1
+    if full_field.ndim == 1:
+        dof_field = np.zeros(n_dof)
+        dof_field[node_to_dof[free]] = full_field[free]
+    else:
+        n_samples = full_field.shape[1]
+        dof_field = np.zeros((n_dof, n_samples))
+        dof_field[node_to_dof[free], :] = full_field[free, :]
+    return dof_field
+
+
 def build_mesh_arrays(mesh_data):
     """Estrae coordinate, triangoli (T) e archi (E) dalla mesh, 1-indicizzati per gca-rom."""
     mesh = mesh_data["mesh"]
