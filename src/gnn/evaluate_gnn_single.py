@@ -75,15 +75,18 @@ def plot_comparison(mesh_data, fields, mu1, mu2, mu_u, output_path):
         true_flat = np.asarray(true_full).reshape(-1)
         pred_flat = np.asarray(pred_full).reshape(-1)
         diff_flat = np.abs(pred_flat - true_flat)
+        # stessa colorbar per FOM e GNN, cosi' i colori sono confrontabili a colpo d'occhio
+        vmin, vmax = min(true_flat.min(), pred_flat.min()), max(true_flat.max(), pred_flat.max())
+        levels = np.linspace(vmin, vmax, 200)
 
         ax = axes[row][0]
-        tc = ax.tricontourf(triang, true_flat, levels=200, cmap="jet")
+        tc = ax.tricontourf(triang, true_flat, levels=levels, cmap="jet", vmin=vmin, vmax=vmax)
         plt.colorbar(tc, ax=ax, label=label)
         ax.set_title(f"FOM (verita') - {label}")
         ax.set_aspect("equal")
 
         ax = axes[row][1]
-        tc = ax.tricontourf(triang, pred_flat, levels=200, cmap="jet")
+        tc = ax.tricontourf(triang, pred_flat, levels=levels, cmap="jet", vmin=vmin, vmax=vmax)
         plt.colorbar(tc, ax=ax, label=label)
         ax.set_title(f"GNN (predizione) - {label}")
         ax.set_aspect("equal")
