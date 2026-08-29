@@ -16,6 +16,13 @@ data/snapshots/*
 !data/meshes/test1_uniform_corner_refined_ctrl/
 !data/meshes/test1_uniform_corner_refined_ctrl/*.csv
 
+# GNN: .mat generati da convert_to_gca_rom.py (rigenerabili dagli snapshot) - NON i
+# pesi allenati in data/gnn/models/, quelli si tengono nel repo (~40 min di training)
+data/gnn/*.mat
+
+# repo esterna gca-rom (clonata dal notebook dentro la repo, ~500MB) - mai committarla
+/gca-rom/
+
 # Ambienti virtuali
 .venv/
 venv/
