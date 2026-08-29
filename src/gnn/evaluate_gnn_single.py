@@ -44,7 +44,60 @@ def parse_args():
     parser.add_argument("--mu1", type=float, required=True)
     parser.add_argument("--mu2", type=float, required=True)
     parser.add_argument("--mu_u", type=float, required=True)
+    parser.add_argument("--plot", action="store_true",
+                         help="mostra il plot FOM/GNN/errore (salvato in un path di default, come run_single_solve.py)")
+    parser.add_argument("--save-plot", default=None, help="path dove salvare permanentemente il plot (opzionale)")
     return parser.parse_args()
+
+
+def plot_comparison(mesh_data, fields, mu1, mu2, mu_u, output_path):
+    """fields: lista di (label, true_full, pred_full), array su tutti i nodi mesh (num_nodes,).
+    Una riga per campo: FOM (verita'), GNN (predizione), errore assoluto - stesso stile di
+    run_single_solve.plot_solution ma con matplotlib.tri diretto (i campi sono gia' su tutti
+    i nodi mesh, nessun bisogno di extract_solution_on_cell0_ds)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.tri as mtri
+
+    mesh = mesh_data["mesh"]
+    x_nodes = np.array([mesh.cell0_d_coordinate_x(i) for i in range(mesh.cell0_d_total_number())])
+    y_nodes = np.array([mesh.cell0_d_coordinate_y(i) for i in range(mesh.cell0_d_total_number())])
+    triangles = np.array([
+        [mesh.cell2_d_vertex(t, 0), mesh.cell2_d_vertex(t, 1), mesh.cell2_d_vertex(t, 2)]
+        for t in range(mesh.cell2_d_total_number())
+    ])
+    triang = mtri.Triangulation(x_nodes, y_nodes, triangles)
+
+    n_rows = len(fields)
+    fig, axes = plt.subplots(n_rows, 3, figsize=(15, 4 * n_rows), squeeze=False)
+    for row, (label, true_full, pred_full) in enumerate(fields):
+        true_flat = np.asarray(true_full).reshape(-1)
+        pred_flat = np.asarray(pred_full).reshape(-1)
+        diff_flat = np.abs(pred_flat - true_flat)
+
+        ax = axes[row][0]
+        tc = ax.tricontourf(triang, true_flat, levels=200, cmap="jet")
+        plt.colorbar(tc, ax=ax, label=label)
+        ax.set_title(f"FOM (verita') - {label}")
+        ax.set_aspect("equal")
+
+        ax = axes[row][1]
+        tc = ax.tricontourf(triang, pred_flat, levels=200, cmap="jet")
+        plt.colorbar(tc, ax=ax, label=label)
+        ax.set_title(f"GNN (predizione) - {label}")
+        ax.set_aspect("equal")
+
+        ax = axes[row][2]
+        tc = ax.tricontourf(triang, diff_flat, levels=200, cmap="jet")
+        plt.colorbar(tc, ax=ax, label=f"|errore {label}|")
+        ax.set_title(f"Errore assoluto - {label}")
+        ax.set_aspect("equal")
+
+    fig.suptitle(f"mu1={mu1}, mu2={mu2}, mu_u={mu_u}")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150)
+    print(f"Plot salvato in {output_path}")
 
 
 def main():
@@ -147,6 +200,7 @@ def main():
         print(f"Errore {label} nel punto (mu1={args.mu1}, mu2={args.mu2}, mu_u={args.mu_u}):")
         print(f"  L2: {err_l2[0]:.4e}")
         print(f"  H1: {err_h1[0]:.4e}")
+        plot_fields = [(label, mat_dict["U"], pred_full)]
     else:
         pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_test[0], train_args.scaling_type).numpy()
         pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_test[1], train_args.scaling_type).numpy()
@@ -160,6 +214,17 @@ def main():
         print(f"Errore nel punto (mu1={args.mu1}, mu2={args.mu2}, mu_u={args.mu_u}):")
         print(f"  y - L2: {err_y_l2[0]:.4e}  H1: {err_y_h1[0]:.4e}")
         print(f"  p - L2: {err_p_l2[0]:.4e}  H1: {err_p_h1[0]:.4e}")
+        plot_fields = [("y", mat_dict["VX"], pred_y_full), ("p", mat_dict["VY"], pred_p_full)]
+
+    if args.plot:
+        default_path = str(Path(tempfile.gettempdir()) / "gnn_single_solution.png")
+        plot_comparison(mesh_data, plot_fields, args.mu1, args.mu2, args.mu_u, default_path)
+        print(f"PLOT_PATH={default_path}")
+        if args.save_plot:
+            import shutil
+            Path(args.save_plot).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(default_path, args.save_plot)
+            print(f"Plot salvato anche in {args.save_plot}")
 
 
 if __name__ == "__main__":
