@@ -75,8 +75,9 @@ def plot_comparison(mesh_data, fields, mu1, mu2, mu_u, output_path):
         true_flat = np.asarray(true_full).reshape(-1)
         pred_flat = np.asarray(pred_full).reshape(-1)
         diff_flat = np.abs(pred_flat - true_flat)
-        # stessa colorbar per FOM e GNN, cosi' i colori sono confrontabili a colpo d'occhio
-        vmin, vmax = min(true_flat.min(), pred_flat.min()), max(true_flat.max(), pred_flat.max())
+        # range preso dal FOM (verita') e applicato anche al plot GNN, cosi' i colori sono
+        # confrontabili a colpo d'occhio e si vede subito se la GNN esce dal range vero
+        vmin, vmax = true_flat.min(), true_flat.max()
         levels = np.linspace(vmin, vmax, 200)
 
         ax = axes[row][0]
@@ -86,7 +87,9 @@ def plot_comparison(mesh_data, fields, mu1, mu2, mu_u, output_path):
         ax.set_aspect("equal")
 
         ax = axes[row][1]
-        tc = ax.tricontourf(triang, pred_flat, levels=levels, cmap="jet", vmin=vmin, vmax=vmax)
+        # extend='both': se la GNN esce dal range del FOM, i valori fuori scala restano
+        # visibili (colore piu' estremo) invece di sparire/troncare silenziosamente
+        tc = ax.tricontourf(triang, pred_flat, levels=levels, cmap="jet", vmin=vmin, vmax=vmax, extend="both")
         plt.colorbar(tc, ax=ax, label=label)
         ax.set_title(f"GNN (predizione) - {label}")
         ax.set_aspect("equal")
