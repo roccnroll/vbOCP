@@ -152,11 +152,13 @@ def main():
         "xx": x[:, None], "yy": y_coord[:, None], "T": T, "E": E,
         "params": np.array([[args.mu1, args.mu2, args.mu_u]]),
     }
+    # Dirichlet: y=1 su Gamma_D, p=0 su Gamma_D (assemble_dirichlet_and_source)
     if train_args.comp == 1:
         field_dof = y_true_dof if train_args.field == "y" else p_true_dof
-        mat_dict["U"] = reconstruct_full_field(field_dof[:, None], node_to_dof)
+        dirichlet_value = 1.0 if train_args.field == "y" else 0.0
+        mat_dict["U"] = reconstruct_full_field(field_dof[:, None], node_to_dof, dirichlet_value)
     else:
-        mat_dict["VX"] = reconstruct_full_field(y_true_dof[:, None], node_to_dof)
+        mat_dict["VX"] = reconstruct_full_field(y_true_dof[:, None], node_to_dof, dirichlet_value=1.0)
         mat_dict["VY"] = reconstruct_full_field(p_true_dof[:, None], node_to_dof)
 
     with tempfile.TemporaryDirectory() as tmp_dir:

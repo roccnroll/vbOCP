@@ -1,1 +1,0 @@
-{"epochs": 5000, "batch_size": null, "minibatch": false, "comp": 1, "field": "y", "scaling_type": 4, "scaler_number": 3, "ffn": 200, "map_nodes": 50, "bottleneck_dim": 15, "lambda_map": 10.0, "in_channels": 2}

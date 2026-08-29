@@ -40,17 +40,20 @@ from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 
 
-def reconstruct_full_field(dof_field, node_to_dof):
+def reconstruct_full_field(dof_field, node_to_dof, dirichlet_value=0.0):
     """Espande un campo indicizzato per DOF (Nh,) o (Nh, n) a tutti i nodi mesh
-    (num_nodes,) o (num_nodes, n), mettendo 0 sui nodi Dirichlet (node_to_dof == -1)."""
+    (num_nodes,) o (num_nodes, n), mettendo dirichlet_value sui nodi Dirichlet
+    (node_to_dof == -1) - vedi assemble_dirichlet_and_source(): p=0 su Gamma_D
+    (dirichlet_value=0.0 va bene), ma y=1 su Gamma_D (serve dirichlet_value=1.0,
+    altrimenti il campo ricostruito ha un bordo sbagliato)."""
     num_nodes = len(node_to_dof)
     if dof_field.ndim == 1:
-        full = np.zeros(num_nodes)
+        full = np.full(num_nodes, dirichlet_value, dtype=float)
         free = node_to_dof >= 0
         full[free] = dof_field[node_to_dof[free]]
     else:
         n_samples = dof_field.shape[1]
-        full = np.zeros((num_nodes, n_samples))
+        full = np.full((num_nodes, n_samples), dirichlet_value, dtype=float)
         free = node_to_dof >= 0
         full[free, :] = dof_field[node_to_dof[free], :]
     return full
@@ -134,11 +137,15 @@ def main():
     }
 
     print(f"Ricostruzione campo(i) su tutti i {num_nodes} nodi mesh (Nh DOF = {mesh_data['Nh']}) ...")
+    # Dirichlet: y=1 su Gamma_D, p=0 su Gamma_D (assemble_dirichlet_and_source) - il valore
+    # va riportato correttamente sui nodi non liberi, altrimenti il campo ricostruito ha un
+    # bordo sbagliato (y a 0 invece che a 1)
     if args.n_comp == 1:
         field = data["Y"] if args.field == "y" else data["P"]
-        mat_dict["U"] = reconstruct_full_field(field, node_to_dof)
+        dirichlet_value = 1.0 if args.field == "y" else 0.0
+        mat_dict["U"] = reconstruct_full_field(field, node_to_dof, dirichlet_value)
     else:
-        mat_dict["VX"] = reconstruct_full_field(data["Y"], node_to_dof)
+        mat_dict["VX"] = reconstruct_full_field(data["Y"], node_to_dof, dirichlet_value=1.0)
         mat_dict["VY"] = reconstruct_full_field(data["P"], node_to_dof)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
