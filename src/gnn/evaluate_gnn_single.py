@@ -1,14 +1,19 @@
 """CLI: valuta un GCA-ROM gia' allenato su UN SOLO punto (mu1, mu2, mu_u) scelto a mano,
 invece che sulla media di un test set intero (per quello vedi evaluate_gnn.py).
 
-Risolve il FOM per la terna richiesta (come run_single_solve.py), costruisce al volo
-un .mat "di test" con un solo campione (stesso formato di convert_to_gca_rom.py) e lo
-passa alla stessa pipeline di valutazione di evaluate_gnn.py.
+Risolve il FOM per la terna richiesta (come run_single_solve.py) e AGGIUNGE il nuovo
+campione al test set vero (--test-mat), invece di valutarlo isolato. Motivo: l'inverse-
+transform usa scaler_all (fittato su tutto il dataset visto in training - coerente con
+lo spazio in cui vive l'output del decoder). Per scaling_type=4, lo stadio "per campione"
+di quello scaler e' fittato con una colonna dedicata per ciascun campione della
+popolazione: un punto nuovo mai incluso nel fit non ha una colonna corrispondente, quindi
+va aggiunto alla popolazione (assieme al test set vero, cosi' la popolazione resta
+realistica) prima di rifittare scaler_all, non trattato isolato.
 
 Uso:
     python -m src.gnn.evaluate_gnn_single --config configs/test1.yaml \
         --gca-rom-path /path/to/gca-rom \
-        --train-mat data/gnn/train_yp.mat \
+        --train-mat data/gnn/train_yp.mat --test-mat data/gnn/test_yp.mat \
         --net-dir data/gnn/models/test1_gnn_yp \
         --mu1 12 --mu2 2.5 --mu_u 0.5
 """
@@ -40,6 +45,9 @@ def parse_args():
     parser.add_argument("--gca-rom-path", required=True)
     parser.add_argument("--train-mat", required=True,
                          help=".mat di training (stesso usato per allenare i pesi - serve per rifare lo scaling)")
+    parser.add_argument("--test-mat", required=True,
+                         help=".mat di test vero (stesso usato in evaluate_gnn.py) - il nuovo punto viene "
+                              "aggiunto a questo set prima di rifittare scaler_all (vedi docstring del modulo)")
     parser.add_argument("--net-dir", required=True, help="cartella con i pesi + train_meta.json da train_gnn.py")
     parser.add_argument("--mu1", type=float, required=True)
     parser.add_argument("--mu2", type=float, required=True)
@@ -146,9 +154,9 @@ def main():
     C = assemble_control_matrix(mesh_data, node_to_dof, args.mu_u)
     y_true_dof, p_true_dof, _ = solve_otd(operators, C, dirichlet_data, args.mu1, args.mu2, alpha)
 
-    print("Costruzione .mat temporaneo con questo singolo campione ...")
+    print("Costruzione del campione singolo ...")
     x, y_coord, T, E, num_nodes = build_mesh_arrays(mesh_data)
-    mat_dict = {
+    single_dict = {
         "xx": x[:, None], "yy": y_coord[:, None], "T": T, "E": E,
         "params": np.array([[args.mu1, args.mu2, args.mu_u]]),
     }
@@ -156,19 +164,34 @@ def main():
     if train_args.comp == 1:
         field_dof = y_true_dof if train_args.field == "y" else p_true_dof
         dirichlet_value = 1.0 if train_args.field == "y" else 0.0
-        mat_dict["U"] = reconstruct_full_field(field_dof[:, None], node_to_dof, dirichlet_value)
+        single_dict["U"] = reconstruct_full_field(field_dof[:, None], node_to_dof, dirichlet_value)
     else:
-        mat_dict["VX"] = reconstruct_full_field(y_true_dof[:, None], node_to_dof, dirichlet_value=1.0)
-        mat_dict["VY"] = reconstruct_full_field(p_true_dof[:, None], node_to_dof)
+        single_dict["VX"] = reconstruct_full_field(y_true_dof[:, None], node_to_dof, dirichlet_value=1.0)
+        single_dict["VY"] = reconstruct_full_field(p_true_dof[:, None], node_to_dof)
+
+    print(f"Aggiunta del campione al test set vero ({args.test_mat}) per rifittare scaler_all ...")
+    real_test = scipy.io.loadmat(args.test_mat)
+    mat_dict = {
+        "xx": np.hstack([real_test["xx"], single_dict["xx"]]),
+        "yy": np.hstack([real_test["yy"], single_dict["yy"]]),
+        "T": real_test["T"], "E": real_test["E"],
+        "params": np.vstack([real_test["params"], single_dict["params"]]),
+    }
+    if train_args.comp == 1:
+        mat_dict["U"] = np.hstack([real_test["U"], single_dict["U"]])
+    else:
+        mat_dict["VX"] = np.hstack([real_test["VX"], single_dict["VX"]])
+        mat_dict["VY"] = np.hstack([real_test["VY"], single_dict["VY"]])
 
     with tempfile.TemporaryDirectory() as tmp_dir:
-        test_mat_path = str(Path(tmp_dir) / "single_test.mat")
+        test_mat_path = str(Path(tmp_dir) / "extended_test.mat")
         scipy.io.savemat(test_mat_path, mat_dict)
 
         print(f"Caricamento train (per lo scaling) da {args.train_mat} ...")
         dataset, params_np, train_snapshots, test_snapshots = build_combined_dataset(
             args.train_mat, test_mat_path, train_args.comp)
         n_param = params_np.shape[1]
+        local_idx = len(test_snapshots) - 1  # posizione del campione nuovo (ultimo aggiunto)
 
         variable = train_args.field if train_args.comp == 1 else "yp"
         HyperParams = build_hyperparams(network, train_args, variable, n_param, net_dir=args.net_dir)
@@ -205,22 +228,25 @@ def main():
     # uno scaler_test separato (specie su un solo campione, come faceva questo script prima)
     # usa statistiche diverse da quelle con cui la rete e' stata davvero allenata.
     if train_args.comp == 1:
-        pred_full = inverse_scale_channel(results_test[:, :, 0], scaler_all, train_args.scaling_type).numpy()
+        pred_full_all = inverse_scale_channel(results_test[:, :, 0], scaler_all, train_args.scaling_type).numpy()
+        pred_full = pred_full_all[:, [local_idx]]
+        true_full = single_dict["U"]
         pred = restrict_to_dof(pred_full, node_to_dof)
-        true = restrict_to_dof(mat_dict["U"], node_to_dof)
+        true = restrict_to_dof(true_full, node_to_dof)
         err_l2 = relative_error(true, pred, M_full)
         err_h1 = relative_error(true, pred, A_diff)
         label = train_args.field or "campo"
         print(f"Errore {label} nel punto (mu1={args.mu1}, mu2={args.mu2}, mu_u={args.mu_u}):")
         print(f"  L2: {err_l2[0]:.4e}")
         print(f"  H1: {err_h1[0]:.4e}")
-        plot_fields = [(label, mat_dict["U"], pred_full)]
+        plot_fields = [(label, true_full, pred_full)]
     else:
-        pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_all[0], train_args.scaling_type).numpy()
-        pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_all[1], train_args.scaling_type).numpy()
+        pred_y_full_all = inverse_scale_channel(results_test[:, :, 0], scaler_all[0], train_args.scaling_type).numpy()
+        pred_p_full_all = inverse_scale_channel(results_test[:, :, 1], scaler_all[1], train_args.scaling_type).numpy()
+        pred_y_full, pred_p_full = pred_y_full_all[:, [local_idx]], pred_p_full_all[:, [local_idx]]
+        true_y_full, true_p_full = single_dict["VX"], single_dict["VY"]
         pred_y, pred_p = restrict_to_dof(pred_y_full, node_to_dof), restrict_to_dof(pred_p_full, node_to_dof)
-        true_y = restrict_to_dof(mat_dict["VX"], node_to_dof)
-        true_p = restrict_to_dof(mat_dict["VY"], node_to_dof)
+        true_y, true_p = restrict_to_dof(true_y_full, node_to_dof), restrict_to_dof(true_p_full, node_to_dof)
         err_y_l2 = relative_error(true_y, pred_y, M_full)
         err_y_h1 = relative_error(true_y, pred_y, A_diff)
         err_p_l2 = relative_error(true_p, pred_p, M_full)
@@ -228,7 +254,7 @@ def main():
         print(f"Errore nel punto (mu1={args.mu1}, mu2={args.mu2}, mu_u={args.mu_u}):")
         print(f"  y - L2: {err_y_l2[0]:.4e}  H1: {err_y_h1[0]:.4e}")
         print(f"  p - L2: {err_p_l2[0]:.4e}  H1: {err_p_h1[0]:.4e}")
-        plot_fields = [("y", mat_dict["VX"], pred_y_full), ("p", mat_dict["VY"], pred_p_full)]
+        plot_fields = [("y", true_y_full, pred_y_full), ("p", true_p_full, pred_p_full)]
 
     if args.plot:
         default_path = str(Path(tempfile.gettempdir()) / "gnn_single_solution.png")
