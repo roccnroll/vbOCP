@@ -127,9 +127,15 @@ def main():
     # M_full/A_diff sono in spazio DOF ridotto (Nh, come la POD) - pred/true della GNN
     # vivono su tutti i nodi mesh (convert_to_gca_rom.py li ricostruisce cosi'), quindi
     # vanno ristretti ai soli DOF liberi prima del confronto
+    #
+    # Usiamo scaler_all (non scaler_test) per l'inverse-transform: durante il training il
+    # decoder impara a riprodurre data.x, costruito da VAR_all (append_graphs usa VAR_all sia
+    # per i grafi di train sia per quelli di test) - quindi l'output della rete vive nello
+    # spazio di scaler_all, non in quello di un ipotetico scaler_test rifittato a parte
+    # (che puo' avere statistiche diverse, specie se la popolazione di test e' piccola).
     if not args.per_sample_scaling:
         if train_args.comp == 1:
-            pred_full = inverse_scale_channel(results_test[:, :, 0], scaler_test, train_args.scaling_type).numpy()
+            pred_full = inverse_scale_channel(results_test[:, :, 0], scaler_all, train_args.scaling_type).numpy()
             true_full = dataset.U[:, test_snapshots].numpy()
             pred = restrict_to_dof(pred_full, node_to_dof)
             true = restrict_to_dof(true_full, node_to_dof)
@@ -140,8 +146,8 @@ def main():
             print(f"  L2 - medio: {err_l2.mean():.4e}  mediano: {np.median(err_l2):.4e}  max: {err_l2.max():.4e}")
             print(f"  H1 - medio: {err_h1.mean():.4e}  mediano: {np.median(err_h1):.4e}  max: {err_h1.max():.4e}")
         else:
-            pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_test[0], train_args.scaling_type).numpy()
-            pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_test[1], train_args.scaling_type).numpy()
+            pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_all[0], train_args.scaling_type).numpy()
+            pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_all[1], train_args.scaling_type).numpy()
             true_y_full = dataset.VX[:, test_snapshots].numpy()
             true_p_full = dataset.VY[:, test_snapshots].numpy()
             pred_y, true_y = restrict_to_dof(pred_y_full, node_to_dof), restrict_to_dof(true_y_full, node_to_dof)
