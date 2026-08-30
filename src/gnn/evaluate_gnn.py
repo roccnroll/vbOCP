@@ -12,6 +12,7 @@ Uso:
         --net-dir data/gnn/models/test1_gnn_y
 """
 import argparse
+import csv
 import json
 import sys
 import time
@@ -40,6 +41,10 @@ def parse_args():
                          help=".mat di training (stesso usato per allenare i pesi - serve per rifare lo scaling)")
     parser.add_argument("--test-mat", required=True, help=".mat di test su cui valutare")
     parser.add_argument("--net-dir", required=True, help="cartella con i pesi + train_meta.json da train_gnn.py")
+    parser.add_argument("--save-csv", default=None,
+                         help="opzionale: salva un .csv con l'errore PER CAMPIONE (mu1,mu2,mu_u,err_*) "
+                              "invece che solo le statistiche aggregate - utile per mappare l'errore "
+                              "sullo spazio dei parametri")
     return parser.parse_args()
 
 
@@ -145,6 +150,23 @@ def main():
         print("Errore p:")
         print(f"  L2 - medio: {err_p_l2.mean():.4e}  mediano: {np.median(err_p_l2):.4e}  max: {err_p_l2.max():.4e}")
         print(f"  H1 - medio: {err_p_h1.mean():.4e}  mediano: {np.median(err_p_h1):.4e}  max: {err_p_h1.max():.4e}")
+
+    if args.save_csv is not None:
+        mu_test = params_np[test_snapshots, :]
+        Path(args.save_csv).parent.mkdir(parents=True, exist_ok=True)
+        with open(args.save_csv, "w", newline="") as f:
+            if train_args.comp == 1:
+                writer = csv.writer(f)
+                writer.writerow(["mu1", "mu2", "mu_u", "err_l2", "err_h1"])
+                for i in range(len(test_snapshots)):
+                    writer.writerow([mu_test[i, 0], mu_test[i, 1], mu_test[i, 2], err_l2[i], err_h1[i]])
+            else:
+                writer = csv.writer(f)
+                writer.writerow(["mu1", "mu2", "mu_u", "err_y_l2", "err_y_h1", "err_p_l2", "err_p_h1"])
+                for i in range(len(test_snapshots)):
+                    writer.writerow([mu_test[i, 0], mu_test[i, 1], mu_test[i, 2],
+                                      err_y_l2[i], err_y_h1[i], err_p_l2[i], err_p_h1[i]])
+        print(f"Errore per campione salvato in {args.save_csv}")
 
     # speedup: tempo FOM online (assembla C(mu_u) + risolve) per lo stesso numero di campioni
     # di test, confrontato col tempo di inferenza della GNN misurato sopra (stesso pattern
