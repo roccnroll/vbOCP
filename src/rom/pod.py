@@ -115,6 +115,73 @@ def build_pod_basis(snapshot_matrix, inner_product, n_modes, normalize=True):
     return basis, eigenvalues
 
 
+def orthogonalize_basis(basis, inner_product, tol=1e-12):
+    """Riortogonalizza (nel prodotto scalare dato) e riordina per importanza reale
+    (autovalore decrescente) un insieme di vettori possibilmente non ortogonali/ridondanti,
+    scartando le direzioni numericamente ridondanti (autovalore ~0 rispetto al piu' grande).
+
+    Equivalente a fare una POD sulla combinazione lineare delle colonne di `basis` (che a
+    loro volta sono gia' combinazioni lineari degli snapshot originali) - usato per
+    aggregare basi POD costruite separatamente (vedi build_aggregated_pod_basis) senza
+    lasciare ne' colonne ridondanti ne' un ordine arbitrario (concatenazione = [y|p], non
+    ordinato per importanza combinata).
+
+    Args:
+        basis: array (Nh, K) - colonne possibilmente non ortogonali/ridondanti
+        inner_product: matrice (Nh, Nh) del prodotto scalare
+        tol: soglia relativa (rispetto all'autovalore piu' grande) sotto cui una direzione
+            e' considerata numericamente ridondante e scartata
+
+    Returns:
+        basis_orth: array (Nh, K') - K' <= K, colonne ortonormali nel prodotto scalare dato,
+            ordinate per importanza decrescente
+        eigenvalues: array (K',) - "energia" di ciascuna direzione ortogonale, decrescente
+    """
+    gram = basis.T @ (inner_product @ basis)  # (K, K)
+    eigenvalues, eigenvectors = np.linalg.eigh(gram)
+    eigenvalues = eigenvalues[::-1]
+    eigenvectors = eigenvectors[:, ::-1]
+
+    keep = eigenvalues > tol * eigenvalues[0]
+    eigenvalues, eigenvectors = eigenvalues[keep], eigenvectors[:, keep]
+
+    basis_orth = (basis @ eigenvectors) / np.sqrt(eigenvalues)
+    return basis_orth, eigenvalues
+
+
+def build_aggregated_pod_basis(snapshot_matrix_y, snapshot_matrix_p, inner_product, n_modes, normalize=True):
+    """Spazio ridotto aggregato per stato+aggiunto (eq. 18 del paper, Strazzullo & Vicini 2023).
+
+    La POD calcolata separatamente su Y e P puo' produrre due basi diverse
+    (direzioni diverse nello stesso spazio Y_h), il che non garantisce la buona
+    posizione della proiezione di Galerkin del sistema saddle-point ridotto
+    (analogo alla condizione di compatibilita' richiesta per problemi misti).
+    La tecnica "aggregated space" del paper risolve il problema costruendo,
+    con lo STESSO N per i due campi, un'unica base comune Q = [Xi_y | Xi_p]
+    di dimensione (Nh, 2N), usata sia per y sia per p - cosi' i due ridotti
+    vivono nello stesso sottospazio condiviso invece che in due sottospazi
+    distinti.
+
+    Args:
+        snapshot_matrix_y: array (Nh, M) - snapshot di stato
+        snapshot_matrix_p: array (Nh, M) - snapshot di aggiunto
+        inner_product: matrice (Nh, Nh) del prodotto scalare (stessa per entrambi)
+        n_modes: N comune, usato per costruire sia Xi_y sia Xi_p
+        normalize: vedi compute_correlation_eigenvalues
+
+    Returns:
+        Q: array (Nh, K) - base aggregata comune, ORTONORMALE nel prodotto scalare dato e
+            riordinata per importanza reale (vedi orthogonalize_basis) - K <= 2*n_modes,
+            puo' essere minore se y e p condividono direzioni ridondanti
+        eigenvalues_y, eigenvalues_p: autovalori delle due POD separate (per il plot)
+    """
+    basis_y, eigenvalues_y = build_pod_basis(snapshot_matrix_y, inner_product, n_modes, normalize)
+    basis_p, eigenvalues_p = build_pod_basis(snapshot_matrix_p, inner_product, n_modes, normalize)
+    Q_raw = np.hstack([basis_y, basis_p])
+    Q, _ = orthogonalize_basis(Q_raw, inner_product)
+    return Q, eigenvalues_y, eigenvalues_p
+
+
 def compute_reconstruction_error_curve(snapshot_matrix_train, snapshot_matrix_test, inner_product,
                                         eigenvectors, n_values):
     """Errore di ricostruzione solo-POD (proiezione di Galerkin) sul test set, per una lista di N.
@@ -146,6 +213,45 @@ def compute_reconstruction_error_curve(snapshot_matrix_train, snapshot_matrix_te
         errors.append(rel_err.mean())
 
     return np.array(errors)
+
+
+def compute_aggregated_reconstruction_error_curve(snapshot_matrix_y_train, snapshot_matrix_p_train,
+                                                   snapshot_matrix_y_test, snapshot_matrix_p_test,
+                                                   inner_product, eigenvectors_y, eigenvectors_p, n_values):
+    """Come compute_reconstruction_error_curve, ma ricostruendo ciascun campo con la base
+    AGGREGATA Q_N = [basis_y_N | basis_p_N] (dimensione Nh, 2N) invece che con la propria
+    base privata - stessa base che user  la PODNN dopo l'aggregated space (vedi
+    build_aggregated_pod_basis), cosi' l'errore qui mostrato e' quello vero, non quello
+    (piu' ottimistico) di una base privata mai usata a valle.
+
+    Args:
+        snapshot_matrix_y_train, snapshot_matrix_p_train: array (Nh, M) - per costruire le basi
+        snapshot_matrix_y_test, snapshot_matrix_p_test: array (Nh, M_test) - su cui si misura l'errore
+        inner_product: matrice (Nh, Nh) (sparse o densa)
+        eigenvectors_y, eigenvectors_p: da compute_correlation_eigenvalues sul training, un set per campo
+        n_values: lista/array di N (per campo - la base aggregata a ogni N ha dimensione 2N)
+
+    Returns:
+        errors_y, errors_p: array, stessa lunghezza di n_values - errore relativo medio sul test
+    """
+    errors_y, errors_p = [], []
+    for n_modes in n_values:
+        basis_y = build_pod_basis_from_eigenvectors(snapshot_matrix_y_train, inner_product, eigenvectors_y, n_modes)
+        basis_p = build_pod_basis_from_eigenvectors(snapshot_matrix_p_train, inner_product, eigenvectors_p, n_modes)
+        Q_raw = np.hstack([basis_y, basis_p])
+        Q, _ = orthogonalize_basis(Q_raw, inner_product)
+
+        for snapshot_test, errors in [(snapshot_matrix_y_test, errors_y), (snapshot_matrix_p_test, errors_p)]:
+            coeffs_test = project_onto_basis(snapshot_test, Q, inner_product)
+            reconstructed = Q @ coeffs_test
+
+            diff = reconstructed - snapshot_test
+            err_sq = np.sum(diff * (inner_product @ diff), axis=0)
+            true_sq = np.sum(snapshot_test * (inner_product @ snapshot_test), axis=0)
+            rel_err = np.sqrt(np.abs(err_sq)) / np.where(np.sqrt(np.abs(true_sq)) > 0, np.sqrt(np.abs(true_sq)), 1.0)
+            errors.append(rel_err.mean())
+
+    return np.array(errors_y), np.array(errors_p)
 
 
 def project_onto_basis(snapshot_matrix, basis, inner_product):

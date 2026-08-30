@@ -1,6 +1,10 @@
 """CLI: errore di ricostruzione della SOLA POD (proiezione di Galerkin) al variare di N,
 con plot combinato contro un CSV di PODNN gia' calcolato (src/rom/sweep_pod_nn.py).
 
+Usa la base aggregata (eq. 18 del paper, vedi pod.build_aggregated_pod_basis): a ogni N
+la base usata per ricostruire sia y sia p e' Q = [basis_y_N | basis_p_N], dimensione
+(Nh, 2N) - stessa base che userebbe poi la PODNN, non due basi private per campo.
+
 Nessun training qui - solo algebra lineare, quindi veloce anche per molti
 valori di N. Se gli viene passato --podnn-csv (il csv gia' prodotto da
 sweep_pod_nn.py, NON rifatto qui), il plot combina le due curve (solo POD
@@ -37,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.inner_product import assemble_full_mass_matrix
-from src.rom.pod import build_pod_basis, project_onto_basis
+from src.rom.pod import build_aggregated_pod_basis, project_onto_basis
 
 
 def parse_args():
@@ -96,14 +100,15 @@ def main():
 
     rows = []
     for n_modes in values:
-        basis_y, _ = build_pod_basis(Y, X, n_modes)
-        basis_p, _ = build_pod_basis(P, X, n_modes)
+        # base aggregata (eq. 18 del paper): stessa Q = [basis_y | basis_p] usata per
+        # entrambi i campi, non due basi private - stesso schema di train_pod.py
+        Q, _, _ = build_aggregated_pod_basis(Y, P, X, n_modes)
 
-        coeffs_y_test = project_onto_basis(Y_test, basis_y, X)
-        coeffs_p_test = project_onto_basis(P_test, basis_p, X)
+        coeffs_y_test = project_onto_basis(Y_test, Q, X)
+        coeffs_p_test = project_onto_basis(P_test, Q, X)
 
-        Y_reconstructed = basis_y @ coeffs_y_test
-        P_reconstructed = basis_p @ coeffs_p_test
+        Y_reconstructed = Q @ coeffs_y_test
+        P_reconstructed = Q @ coeffs_p_test
 
         err_y = relative_error(Y_test, Y_reconstructed, X).mean()
         err_p = relative_error(P_test, P_reconstructed, X).mean()

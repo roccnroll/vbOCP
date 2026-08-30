@@ -1,8 +1,12 @@
-"""CLI: costruisce la base POD (stato e aggiunto) da uno snapshot .npz.
+"""CLI: costruisce la base POD aggregata (stato + aggiunto) da uno snapshot .npz.
 
-N scelto automaticamente in base a una soglia di energia cumulata,
-indipendentemente per stato e aggiunto (non piu' forzati allo stesso N -
-approccio non intrusivo, ogni base ha la propria dimensione naturale).
+N scelto automaticamente per ciascun campo in base a una soglia di energia
+cumulata, poi portato a un N comune (il massimo dei due) per costruire lo
+spazio ridotto AGGREGATO richiesto dal sistema saddle-point (eq. 18 del
+paper, Strazzullo & Vicini 2023): un'unica base Q = [basis_y | basis_p] di
+dimensione (Nh, 2N), usata sia per stato sia per aggiunto, invece di due
+basi indipendenti (che non garantirebbero la buona posizione della
+proiezione di Galerkin del sistema ridotto - vedi pod.build_aggregated_pod_basis).
 
 Uso:
     python -m src.rom.train_pod --config configs/test1.yaml \
@@ -24,9 +28,9 @@ from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.rom.pod import (
-    build_pod_basis, compute_correlation_eigenvalues, select_n_modes,
+    build_aggregated_pod_basis, compute_correlation_eigenvalues, select_n_modes,
     plot_eigenvalue_decay, plot_eigenvalue_decay_with_error,
-    compute_reconstruction_error_curve, project_onto_basis,
+    compute_aggregated_reconstruction_error_curve, project_onto_basis,
 )
 
 
@@ -86,15 +90,19 @@ def main():
 
     n_y = select_n_modes(eig_y, args.energy_threshold, args.max_modes)
     n_p = select_n_modes(eig_p, args.energy_threshold, args.max_modes)
-    print(f"N scelto: stato={n_y}, aggiunto={n_p} (indipendenti)")
+    n_common = max(n_y, n_p)
+    print(f"N scelto: stato={n_y}, aggiunto={n_p} -> N comune per aggregated space = {n_common}")
 
-    basis_y, _ = build_pod_basis(Y, X, n_y, normalize_correlation)
-    basis_p, _ = build_pod_basis(P, X, n_p, normalize_correlation)
+    # aggregated space (eq. 18 del paper): stessa base comune Q = [basis_y | basis_p] di
+    # dimensione (Nh, 2*n_common) per stato e aggiunto, invece di due basi indipendenti -
+    # garantisce che i due ridotti vivano nello stesso sottospazio (vedi pod.py per i dettagli)
+    Q, _, _ = build_aggregated_pod_basis(Y, P, X, n_common, normalize_correlation)
+    basis_y = basis_p = Q
 
-    # proiezione di Galerkin degli snapshot sulle basi (target di training per la PODNN,
+    # proiezione di Galerkin degli snapshot sulla base comune (target di training per la PODNN,
     # stesso pattern gia' usato per il controllo)
-    coeffs_y = project_onto_basis(Y, basis_y, X)  # (n_y, n_samples)
-    coeffs_p = project_onto_basis(P, basis_p, X)  # (n_p, n_samples)
+    coeffs_y = project_onto_basis(Y, basis_y, X)  # (2*n_common, n_samples)
+    coeffs_p = project_onto_basis(P, basis_p, X)  # (2*n_common, n_samples)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
@@ -103,7 +111,7 @@ def main():
         eigenvalues_y=eig_y, eigenvalues_p=eig_p,
         coeffs_y=coeffs_y, coeffs_p=coeffs_p,
         mu1=mu1, mu2=mu2, mu_u=mu_u,
-        inner_product=args.inner_product, n_modes_y=n_y, n_modes_p=n_p,
+        inner_product=args.inner_product, n_modes_y=Q.shape[1], n_modes_p=Q.shape[1],
     )
     print(f"Base POD salvata in {args.output}")
 
@@ -119,13 +127,16 @@ def main():
 
             max_n = min(80, len(eig_y), len(eig_p))
             n_values = range(1, max_n + 1)
-            err_y = compute_reconstruction_error_curve(Y, Y_test, X, eigvec_y, n_values)
-            err_p = compute_reconstruction_error_curve(P, P_test, X, eigvec_p, n_values)
+            # errore con la base AGGREGATA (dimensione 2N a ogni N), non con la base privata
+            # di ciascun campo - e' l'errore vero che avra' la PODNN dopo l'aggregated space
+            err_y, err_p = compute_aggregated_reconstruction_error_curve(
+                Y, P, Y_test, P_test, X, eigvec_y, eigvec_p, n_values)
 
             plot_eigenvalue_decay_with_error(
                 {"Stato (y)": eig_y, "Aggiunto (p)": eig_p},
                 {"Stato (y)": err_y, "Aggiunto (p)": err_p},
                 output_path=default_path, max_n=max_n,
+                title="Decadimento autovalori POD (per campo - lo spazio aggregato usato ha dim. 2N)",
             )
         else:
             plot_eigenvalue_decay(eig_y, eig_p, output_path=default_path)
