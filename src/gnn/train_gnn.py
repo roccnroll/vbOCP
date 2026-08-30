@@ -57,9 +57,11 @@ def parse_args():
     parser.add_argument("--net-name", required=True, help="nome della run (sottocartella di --net-dir)")
     parser.add_argument("--net-dir", required=True, help="cartella dove gca-rom salva pesi/log")
     parser.add_argument("--bottleneck-dim", type=int, default=15)
-    parser.add_argument("--ffn", type=int, default=200, help="nodi del feedforward nell'encoder/decoder")
+    parser.add_argument("--ffn", type=int, default=100,
+                         help="nodi del feedforward nell'encoder/decoder (default = Table A.5 del paper GCA-ROM, benchmark Poisson senza pooling)")
     parser.add_argument("--map-nodes", type=int, default=50, help="nodi dell'MLP mu->latente")
-    parser.add_argument("--in-channels", type=int, default=2, help="numero di layer GMMConv")
+    parser.add_argument("--in-channels", type=int, default=3,
+                         help="numero di layer GMMConv (hcp nel paper GCA-ROM; default = Table A.5, benchmark Poisson senza pooling)")
     parser.add_argument("--lambda-map", type=float, default=10.0)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epochs", type=int, default=5000)
