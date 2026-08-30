@@ -45,6 +45,11 @@ def parse_args():
                          help="opzionale: salva un .csv con l'errore PER CAMPIONE (mu1,mu2,mu_u,err_*) "
                               "invece che solo le statistiche aggregate - utile per mappare l'errore "
                               "sullo spazio dei parametri")
+    parser.add_argument("--per-sample-scaling", action="store_true",
+                         help="invece di un unico scaler_test fittato su tutto il test set, rifitta lo "
+                              "scaler PER OGNI campione singolarmente (stesso comportamento che aveva "
+                              "evaluate_gnn_single.py) - serve solo per confrontare le due modalita', "
+                              "non e' il default consigliato (popolazione di 1 e' statisticamente degenere)")
     return parser.parse_args()
 
 
@@ -122,34 +127,85 @@ def main():
     # M_full/A_diff sono in spazio DOF ridotto (Nh, come la POD) - pred/true della GNN
     # vivono su tutti i nodi mesh (convert_to_gca_rom.py li ricostruisce cosi'), quindi
     # vanno ristretti ai soli DOF liberi prima del confronto
-    if train_args.comp == 1:
-        pred_full = inverse_scale_channel(results_test[:, :, 0], scaler_test, train_args.scaling_type).numpy()
-        true_full = dataset.U[:, test_snapshots].numpy()
-        pred = restrict_to_dof(pred_full, node_to_dof)
-        true = restrict_to_dof(true_full, node_to_dof)
-        err_l2 = relative_error(true, pred, M_full)
-        err_h1 = relative_error(true, pred, A_diff)
-        label = train_args.field or "campo"
-        print(f"Errore {label}:")
-        print(f"  L2 - medio: {err_l2.mean():.4e}  mediano: {np.median(err_l2):.4e}  max: {err_l2.max():.4e}")
-        print(f"  H1 - medio: {err_h1.mean():.4e}  mediano: {np.median(err_h1):.4e}  max: {err_h1.max():.4e}")
+    if not args.per_sample_scaling:
+        if train_args.comp == 1:
+            pred_full = inverse_scale_channel(results_test[:, :, 0], scaler_test, train_args.scaling_type).numpy()
+            true_full = dataset.U[:, test_snapshots].numpy()
+            pred = restrict_to_dof(pred_full, node_to_dof)
+            true = restrict_to_dof(true_full, node_to_dof)
+            err_l2 = relative_error(true, pred, M_full)
+            err_h1 = relative_error(true, pred, A_diff)
+            label = train_args.field or "campo"
+            print(f"Errore {label}:")
+            print(f"  L2 - medio: {err_l2.mean():.4e}  mediano: {np.median(err_l2):.4e}  max: {err_l2.max():.4e}")
+            print(f"  H1 - medio: {err_h1.mean():.4e}  mediano: {np.median(err_h1):.4e}  max: {err_h1.max():.4e}")
+        else:
+            pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_test[0], train_args.scaling_type).numpy()
+            pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_test[1], train_args.scaling_type).numpy()
+            true_y_full = dataset.VX[:, test_snapshots].numpy()
+            true_p_full = dataset.VY[:, test_snapshots].numpy()
+            pred_y, true_y = restrict_to_dof(pred_y_full, node_to_dof), restrict_to_dof(true_y_full, node_to_dof)
+            pred_p, true_p = restrict_to_dof(pred_p_full, node_to_dof), restrict_to_dof(true_p_full, node_to_dof)
+            err_y_l2 = relative_error(true_y, pred_y, M_full)
+            err_y_h1 = relative_error(true_y, pred_y, A_diff)
+            err_p_l2 = relative_error(true_p, pred_p, M_full)
+            err_p_h1 = relative_error(true_p, pred_p, A_diff)
+            print("Errore y:")
+            print(f"  L2 - medio: {err_y_l2.mean():.4e}  mediano: {np.median(err_y_l2):.4e}  max: {err_y_l2.max():.4e}")
+            print(f"  H1 - medio: {err_y_h1.mean():.4e}  mediano: {np.median(err_y_h1):.4e}  max: {err_y_h1.max():.4e}")
+            print("Errore p:")
+            print(f"  L2 - medio: {err_p_l2.mean():.4e}  mediano: {np.median(err_p_l2):.4e}  max: {err_p_l2.max():.4e}")
+            print(f"  H1 - medio: {err_p_h1.mean():.4e}  mediano: {np.median(err_p_h1):.4e}  max: {err_p_h1.max():.4e}")
     else:
-        pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_test[0], train_args.scaling_type).numpy()
-        pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_test[1], train_args.scaling_type).numpy()
-        true_y_full = dataset.VX[:, test_snapshots].numpy()
-        true_p_full = dataset.VY[:, test_snapshots].numpy()
-        pred_y, true_y = restrict_to_dof(pred_y_full, node_to_dof), restrict_to_dof(true_y_full, node_to_dof)
-        pred_p, true_p = restrict_to_dof(pred_p_full, node_to_dof), restrict_to_dof(true_p_full, node_to_dof)
-        err_y_l2 = relative_error(true_y, pred_y, M_full)
-        err_y_h1 = relative_error(true_y, pred_y, A_diff)
-        err_p_l2 = relative_error(true_p, pred_p, M_full)
-        err_p_h1 = relative_error(true_p, pred_p, A_diff)
-        print("Errore y:")
-        print(f"  L2 - medio: {err_y_l2.mean():.4e}  mediano: {np.median(err_y_l2):.4e}  max: {err_y_l2.max():.4e}")
-        print(f"  H1 - medio: {err_y_h1.mean():.4e}  mediano: {np.median(err_y_h1):.4e}  max: {err_y_h1.max():.4e}")
-        print("Errore p:")
-        print(f"  L2 - medio: {err_p_l2.mean():.4e}  mediano: {np.median(err_p_l2):.4e}  max: {err_p_l2.max():.4e}")
-        print(f"  H1 - medio: {err_p_h1.mean():.4e}  mediano: {np.median(err_p_h1):.4e}  max: {err_p_h1.max():.4e}")
+        # rifitta lo scaler per OGNI campione singolarmente (popolazione di 1, degenere) invece che
+        # su tutto il test set - results_test non dipende dallo scaler (solo la sua shape viene letta
+        # da testing.evaluate), quindi possiamo riusare lo stesso risultato gia' calcolato e rifare
+        # solo l'inverse-transform, campione per campione
+        from gca_rom import scaling as gca_scaling
+        print("Modalita' --per-sample-scaling: scaler rifittato per ogni campione (popolazione di 1) ...")
+
+        if train_args.comp == 1:
+            err_l2, err_h1 = [], []
+            for local_i, global_i in enumerate(test_snapshots):
+                true_i = dataset.U[:, [global_i]]
+                scaler_i, _ = gca_scaling.tensor_scaling(true_i, train_args.scaling_type, train_args.scaler_number)
+                pred_i_full = inverse_scale_channel(
+                    results_test[[local_i], :, 0], scaler_i, train_args.scaling_type).numpy()
+                pred_i = restrict_to_dof(pred_i_full, node_to_dof)
+                true_i_dof = restrict_to_dof(true_i.numpy(), node_to_dof)
+                err_l2.append(relative_error(true_i_dof, pred_i, M_full)[0])
+                err_h1.append(relative_error(true_i_dof, pred_i, A_diff)[0])
+            err_l2, err_h1 = np.array(err_l2), np.array(err_h1)
+            label = train_args.field or "campo"
+            print(f"Errore {label} (per-sample scaling):")
+            print(f"  L2 - medio: {err_l2.mean():.4e}  mediano: {np.median(err_l2):.4e}  max: {err_l2.max():.4e}")
+            print(f"  H1 - medio: {err_h1.mean():.4e}  mediano: {np.median(err_h1):.4e}  max: {err_h1.max():.4e}")
+        else:
+            err_y_l2, err_y_h1, err_p_l2, err_p_h1 = [], [], [], []
+            for local_i, global_i in enumerate(test_snapshots):
+                true_y_i = dataset.VX[:, [global_i]]
+                true_p_i = dataset.VY[:, [global_i]]
+                scaler_y_i, _ = gca_scaling.tensor_scaling(true_y_i, train_args.scaling_type, train_args.scaler_number)
+                scaler_p_i, _ = gca_scaling.tensor_scaling(true_p_i, train_args.scaling_type, train_args.scaler_number)
+                pred_y_i_full = inverse_scale_channel(
+                    results_test[[local_i], :, 0], scaler_y_i, train_args.scaling_type).numpy()
+                pred_p_i_full = inverse_scale_channel(
+                    results_test[[local_i], :, 1], scaler_p_i, train_args.scaling_type).numpy()
+                pred_y_i, pred_p_i = restrict_to_dof(pred_y_i_full, node_to_dof), restrict_to_dof(pred_p_i_full, node_to_dof)
+                true_y_i_dof = restrict_to_dof(true_y_i.numpy(), node_to_dof)
+                true_p_i_dof = restrict_to_dof(true_p_i.numpy(), node_to_dof)
+                err_y_l2.append(relative_error(true_y_i_dof, pred_y_i, M_full)[0])
+                err_y_h1.append(relative_error(true_y_i_dof, pred_y_i, A_diff)[0])
+                err_p_l2.append(relative_error(true_p_i_dof, pred_p_i, M_full)[0])
+                err_p_h1.append(relative_error(true_p_i_dof, pred_p_i, A_diff)[0])
+            err_y_l2, err_y_h1 = np.array(err_y_l2), np.array(err_y_h1)
+            err_p_l2, err_p_h1 = np.array(err_p_l2), np.array(err_p_h1)
+            print("Errore y (per-sample scaling):")
+            print(f"  L2 - medio: {err_y_l2.mean():.4e}  mediano: {np.median(err_y_l2):.4e}  max: {err_y_l2.max():.4e}")
+            print(f"  H1 - medio: {err_y_h1.mean():.4e}  mediano: {np.median(err_y_h1):.4e}  max: {err_y_h1.max():.4e}")
+            print("Errore p (per-sample scaling):")
+            print(f"  L2 - medio: {err_p_l2.mean():.4e}  mediano: {np.median(err_p_l2):.4e}  max: {err_p_l2.max():.4e}")
+            print(f"  H1 - medio: {err_p_h1.mean():.4e}  mediano: {np.median(err_p_h1):.4e}  max: {err_p_h1.max():.4e}")
 
     if args.save_csv is not None:
         mu_test = params_np[test_snapshots, :]
