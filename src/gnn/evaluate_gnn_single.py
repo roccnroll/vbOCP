@@ -198,14 +198,8 @@ def main():
 
     # M_full/A_diff sono in spazio DOF ridotto (Nh, come la POD) - pred/true della GNN
     # vivono su tutti i nodi mesh, quindi vanno ristretti ai soli DOF liberi prima del confronto
-    #
-    # Usiamo scaler_all (non scaler_test) per l'inverse-transform: il decoder impara a
-    # riprodurre data.x costruito da VAR_all (append_graphs usa VAR_all per tutti i grafi,
-    # train e test), quindi l'output della rete vive nello spazio di scaler_all - fittare
-    # uno scaler_test separato (specie su un solo campione, come faceva questo script prima)
-    # usa statistiche diverse da quelle con cui la rete e' stata davvero allenata.
     if train_args.comp == 1:
-        pred_full = inverse_scale_channel(results_test[:, :, 0], scaler_all, train_args.scaling_type).numpy()
+        pred_full = inverse_scale_channel(results_test[:, :, 0], scaler_test, train_args.scaling_type).numpy()
         pred = restrict_to_dof(pred_full, node_to_dof)
         true = restrict_to_dof(mat_dict["U"], node_to_dof)
         err_l2 = relative_error(true, pred, M_full)
@@ -216,8 +210,8 @@ def main():
         print(f"  H1: {err_h1[0]:.4e}")
         plot_fields = [(label, mat_dict["U"], pred_full)]
     else:
-        pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_all[0], train_args.scaling_type).numpy()
-        pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_all[1], train_args.scaling_type).numpy()
+        pred_y_full = inverse_scale_channel(results_test[:, :, 0], scaler_test[0], train_args.scaling_type).numpy()
+        pred_p_full = inverse_scale_channel(results_test[:, :, 1], scaler_test[1], train_args.scaling_type).numpy()
         pred_y, pred_p = restrict_to_dof(pred_y_full, node_to_dof), restrict_to_dof(pred_p_full, node_to_dof)
         true_y = restrict_to_dof(mat_dict["VX"], node_to_dof)
         true_p = restrict_to_dof(mat_dict["VY"], node_to_dof)
