@@ -35,7 +35,7 @@ from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.rom.pod import (
-    compute_correlation_eigenvalues, select_n_modes, build_aggregated_pod_basis,
+    compute_correlation_eigenvalues, select_n_modes, build_pod_basis,
     project_onto_basis, plot_eigenvalue_decay_curves,
 )
 from src.dl.common import (
@@ -66,14 +66,13 @@ def parse_args():
 
 def train_and_evaluate(Y, P, Y_test, P_test, X, n_modes, hidden_dim, n_hidden_layers,
                         mu1, mu2, mu_u, mu1_test, mu2_test, mu_u_test, epochs, lr):
-    """Costruisce la base aggregata (eq. 18 del paper, dimensione (Nh, 2*n_modes), stessa
-    Q per y e p) + una rete per campo, valuta errore L2/H1 sul test set."""
-    Q, _, _ = build_aggregated_pod_basis(Y, P, X, n_modes)
-    n_out = Q.shape[1]
-
+    """Costruisce base+rete per y e p indipendentemente (stesso n_modes per entrambi, ma
+    basi separate - non aggregated space, che qui gonfierebbe inutilmente la dimensione di
+    output della rete per l'aggiunto, vedi train_pod.py), valuta errore L2/H1 sul test set."""
     results = {}
     for field, Y_train_field, Y_test_field in [("y", Y, Y_test), ("p", P, P_test)]:
-        coeffs = project_onto_basis(Y_train_field, Q, X)  # (n_out, n_samples)
+        basis, _ = build_pod_basis(Y_train_field, X, n_modes)
+        coeffs = project_onto_basis(Y_train_field, basis, X)  # (n_modes, n_samples)
 
         x_raw = np.stack([mu1, mu2, mu_u], axis=1)
         y_raw = coeffs.T
@@ -82,14 +81,14 @@ def train_and_evaluate(Y, P, Y_test, P_test, X, n_modes, hidden_dim, n_hidden_la
         x_train = torch.tensor(normalize_minmax(x_raw, x_stats), dtype=torch.float32)
         y_train = torch.tensor(normalize_standard(y_raw, y_stats), dtype=torch.float32)
 
-        net = FFNN(input_dim=3, output_dim=n_out, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
+        net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
         net = train_ffnn(net, x_train, y_train, epochs=epochs, lr=lr, lr_drop_epoch=epochs // 2, print_every=epochs + 1)
 
         x_test_raw = np.stack([mu1_test, mu2_test, mu_u_test], axis=1)
         x_test = torch.tensor(normalize_minmax(x_test_raw, x_stats), dtype=torch.float32)
         with torch.no_grad():
             coeffs_pred = denormalize_standard(net(x_test).numpy(), y_stats)
-        Y_pred = Q @ coeffs_pred.T
+        Y_pred = basis @ coeffs_pred.T
 
         diff = Y_pred - Y_test_field
         err_sq = np.sum(diff * (X @ diff), axis=0)
