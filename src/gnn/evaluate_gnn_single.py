@@ -38,6 +38,7 @@ from src.full_order.solve import solve_otd
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.gnn.train_gnn import build_combined_dataset, inverse_scale_channel, relative_error, build_hyperparams
 from src.gnn.convert_to_gca_rom import build_mesh_arrays, reconstruct_full_field, restrict_to_dof
+from src.dl.common import normalize_minmax
 
 
 def parse_args():
@@ -215,7 +216,11 @@ def main():
         model.load_state_dict(torch.load(weights_path, map_location=device))
         model.to("cpu")
 
-        params = torch.tensor(params_np, dtype=torch.get_default_dtype())
+        # stessa normalizzazione min-max di mu usata in training.py (fit sui soli campioni di
+        # training, salvata in train_meta.json) - la rete si aspetta input in [-1,1]
+        mu_stats = {"min": np.array(meta["mu_min"]), "max": np.array(meta["mu_max"])}
+        params_norm = normalize_minmax(params_np, mu_stats)
+        params = torch.tensor(params_norm, dtype=torch.get_default_dtype())
 
         print("Predizione GNN sul punto richiesto ...")
         results_test, _, _ = testing.evaluate(VAR_test, model, val_loader, params, HyperParams, test_snapshots)

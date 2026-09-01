@@ -43,6 +43,7 @@ from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.gnn.convert_to_gca_rom import restrict_to_dof
+from src.dl.common import compute_minmax_stats, normalize_minmax
 
 
 def parse_args():
@@ -57,11 +58,14 @@ def parse_args():
     parser.add_argument("--net-name", required=True, help="nome della run (sottocartella di --net-dir)")
     parser.add_argument("--net-dir", required=True, help="cartella dove gca-rom salva pesi/log")
     parser.add_argument("--bottleneck-dim", type=int, default=15)
-    parser.add_argument("--ffn", type=int, default=100,
-                         help="nodi del feedforward nell'encoder/decoder (default = Table A.5 del paper GCA-ROM, benchmark Poisson senza pooling)")
+    parser.add_argument("--ffn", type=int, default=200,
+                         help="nodi del feedforward nell'encoder/decoder (Table A.5 del paper suggerisce 100 per "
+                              "Poisson, ma su questo problema saddle-point si e' rivelato empiricamente peggiore - "
+                              "vedi handout)")
     parser.add_argument("--map-nodes", type=int, default=50, help="nodi dell'MLP mu->latente")
-    parser.add_argument("--in-channels", type=int, default=3,
-                         help="numero di layer GMMConv (hcp nel paper GCA-ROM; default = Table A.5, benchmark Poisson senza pooling)")
+    parser.add_argument("--in-channels", type=int, default=2,
+                         help="numero di layer GMMConv (hcp nel paper GCA-ROM=3 per Poisson, ma su questo "
+                              "problema si e' rivelato empiricamente peggiore/instabile - vedi handout)")
     parser.add_argument("--lambda-map", type=float, default=10.0)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--epochs", type=int, default=5000)
@@ -199,7 +203,13 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=HyperParams.learning_rate, weight_decay=HyperParams.weight_decay)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=HyperParams.miles, gamma=HyperParams.gamma)
 
-    params = torch.tensor(params_np, dtype=torch.get_default_dtype()).to(device)
+    # gca-rom passa mu grezzi a mapping() (attivazione tanh, satura per input grandi) - li
+    # normalizziamo in [-1,1] (fit sui soli campioni di training) prima di darli in pasto alla
+    # rete, come gia' si fa per la PODNN (src/dl/common.py). Le statistiche vanno salvate in
+    # train_meta.json per riapplicare la STESSA normalizzazione in fase di valutazione.
+    mu_stats = compute_minmax_stats(params_np[train_snapshots])
+    params_norm = normalize_minmax(params_np, mu_stats)
+    params = torch.tensor(params_norm, dtype=torch.get_default_dtype()).to(device)
 
     print("Training GCA-ROM ...")
     training.train(model, optimizer, device, scheduler, params, train_loader, test_loader,
@@ -237,6 +247,7 @@ def main():
 
     meta_path = Path(args.net_dir) / "train_meta.json"
     meta_path.write_text(json.dumps({
+        "mu_min": mu_stats["min"].tolist(), "mu_max": mu_stats["max"].tolist(),
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "minibatch": args.minibatch,
