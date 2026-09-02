@@ -79,7 +79,7 @@ class FFNN(nn.Module):
 
 
 def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None, lr_drop_factor=0.1,
-               tol=1e-5, print_every=2000, device=None):
+               tol=1e-5, print_every=2000, device=None, return_history=False):
     """Allena una FFNN con Adam + MSE, full-batch, come nel notebook del prof.
 
     Usa la GPU se disponibile (rilevata automaticamente), altrimenti CPU -
@@ -98,9 +98,12 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
         tol: soglia di loss sotto la quale ci si ferma prima delle epoche massime
         print_every: ogni quante epoche stampare la loss
         device: "cuda"/"cpu"/None (None = auto-rileva se la GPU e' disponibile)
+        return_history: se True, restituisce anche la lista della loss ad ogni epoca
+            (per diagnosticare se la loss e' ancora in discesa o e' in plateau - non
+            impatta il training, solo cosa viene restituito)
 
     Returns:
-        net allenato, riportato su CPU
+        net allenato, riportato su CPU (oppure (net, loss_history) se return_history=True)
     """
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -114,6 +117,7 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
 
     loss_value = float("inf")
     epoch = 0
+    loss_history = []
     while loss_value >= tol and epoch < epochs:
         epoch += 1
         optimizer.zero_grad()
@@ -128,7 +132,12 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
         optimizer.step()
 
         loss_value = loss.item()
+        if return_history:
+            loss_history.append(loss_value)
         if epoch % print_every == 0:
             print(f"  epoch {epoch}  loss {loss_value:.6e}  lr {optimizer.param_groups[0]['lr']:.1e}  device {device}")
 
-    return net.to("cpu")
+    net = net.to("cpu")
+    if return_history:
+        return net, loss_history
+    return net
