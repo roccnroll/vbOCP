@@ -82,10 +82,8 @@ def train_and_evaluate(Y, P, Y_test, P_test, X, n_modes, hidden_dim, n_hidden_la
         y_train = torch.tensor(normalize_standard(y_raw, y_stats), dtype=torch.float32)
 
         net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
-        # device="cpu" esplicito - vedi train_reduced_nn.py, la GPU rallenta questa rete
-        # minuscola per via della sincronizzazione ad ogni epoca in train_ffnn
         net = train_ffnn(net, x_train, y_train, epochs=epochs, lr=lr, lr_drop_epoch=epochs // 2,
-                          print_every=epochs + 1, device="cpu")
+                          print_every=epochs + 1)
 
         x_test_raw = np.stack([mu1_test, mu2_test, mu_u_test], axis=1)
         x_test = torch.tensor(normalize_minmax(x_test_raw, x_stats), dtype=torch.float32)
