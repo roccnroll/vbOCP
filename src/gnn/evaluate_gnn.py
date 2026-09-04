@@ -109,7 +109,7 @@ def main():
         HyperParams, dataset, test_snapshots, var, var1, var2)
     graphs, train_dataset, test_dataset = processor.append_graphs(
         HyperParams, VAR_all, dataset, num_graphs, xx, yy, train_snapshots, test_snapshots, zz)
-    _, _, _, val_loader = processor.return_loaders(
+    _, _, test_loader, val_loader = processor.return_loaders(
         HyperParams, graphs, train_dataset, test_dataset, len(train_snapshots), len(test_snapshots))
 
     weights_path = Path(args.net_dir.rstrip("/") + "/") / f"{net_name}{HyperParams.net_run}.pt"
@@ -128,6 +128,21 @@ def main():
     start_rom = time.time()
     results_test, _, _ = testing.evaluate(VAR_test, model, val_loader, params, HyperParams, test_snapshots)
     time_rom = time.time() - start_rom
+
+    # diagnostico: stesso identico calcolo (mapping(mu) -> solo_decoder), ma in UN SOLO
+    # forward pass su tutti i 150 grafi di test uniti in un unico batch (test_loader, non
+    # val_loader a batch_size=1) - serve a isolare quanto tempo di time_rom sopra e' overhead
+    # del loop "un campione alla volta" invece che costo computazionale vero della rete.
+    # Stesso pattern usato durante il training (che processa tutto il train set in un batch).
+    with torch.no_grad():
+        test_batch = next(iter(test_loader))
+        params_test = params[test_snapshots, :]
+        start_batched = time.time()
+        z_map_batched = model.mapping(params_test)
+        _ = model.solo_decoder(z_map_batched, test_batch)
+        time_rom_batched = time.time() - start_batched
+    print(f"Tempo GNN (online, batch unico invece di {len(test_snapshots)} chiamate separate): "
+          f"{time_rom_batched:.4f} s (vs {time_rom:.4f} s con val_loader a batch_size=1)")
 
     # M_full/A_diff sono in spazio DOF ridotto (Nh, come la POD) - pred/true della GNN
     # vivono su tutti i nodi mesh (convert_to_gca_rom.py li ricostruisce cosi'), quindi
