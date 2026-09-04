@@ -82,10 +82,17 @@ def main():
     y_train = torch.tensor(y_norm, dtype=torch.float32)
 
     net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=args.hidden_dim, n_hidden_layers=args.n_hidden_layers)
-    net = train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr, lr_drop_epoch=args.epochs // 2)
+    net, loss_history = train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr,
+                                    lr_drop_epoch=args.epochs // 2, return_history=True)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     torch.save(net.state_dict(), args.output)
+
+    # loss di training ad ogni epoca, salvata accanto ai pesi - permette di plottare la
+    # curva di convergenza senza dover riallenare
+    loss_path = str(Path(args.output).with_suffix(".loss.npy"))
+    np.save(loss_path, np.array(loss_history))
+    print(f"Loss history salvata in {loss_path}")
 
     # statistiche di normalizzazione + architettura salvate accanto ai pesi - servono a
     # evaluate per de-normalizzare e per ricostruire la STESSA rete (stesse dimensioni)
