@@ -53,6 +53,16 @@ def main():
     mu1, mu2, mu_u = pod_data["mu1"], pod_data["mu2"], pod_data["mu_u"]
     n_modes_available = int(pod_data[f"n_modes_{args.field}"])
 
+    has_val = f"coeffs_{args.field}_test" in pod_data.files
+    if has_val:
+        coeffs_val = pod_data[f"coeffs_{args.field}_test"]
+        mu1_val, mu2_val, mu_u_val = pod_data["mu1_test"], pod_data["mu2_test"], pod_data["mu_u_test"]
+        print(f"Coefficienti di validazione trovati nel pod-model - early stopping attivo")
+    else:
+        print("Nessun coefficiente di validazione nel pod-model (rigenera con train_pod.py "
+              "--test-snapshots per abilitare l'early stopping) - training senza early stopping, "
+              "rischio di overfitting con molte epoche (vedi handout)")
+
     if args.n_modes is not None:
         if args.n_modes > n_modes_available:
             raise ValueError(
@@ -61,6 +71,8 @@ def main():
             )
         n_modes = args.n_modes
         coeffs = coeffs[:n_modes, :]  # primi N modi = i piu' energetici (ordinati per autovalore decrescente)
+        if has_val:
+            coeffs_val = coeffs_val[:n_modes, :]
         print(f"N modi: {n_modes} (esplicito, su {n_modes_available} disponibili)")
     else:
         n_modes = n_modes_available
@@ -71,7 +83,8 @@ def main():
 
     # normalizzazione: input in [-1,1] (si abbina a Tanh), output standardizzati
     # (i coefficienti POD hanno scale molto diverse tra i modi, senza normalizzare
-    # la loss sarebbe dominata dai coefficienti piu' grandi)
+    # la loss sarebbe dominata dai coefficienti piu' grandi) - le statistiche sono fit SOLO
+    # sul training, e riusate identiche per la validazione
     x_stats = compute_minmax_stats(x_raw)
     y_stats = compute_standard_stats(y_raw)
     x_norm = normalize_minmax(x_raw, x_stats)
@@ -81,18 +94,34 @@ def main():
     x_train = torch.tensor(x_norm, dtype=torch.float32)
     y_train = torch.tensor(y_norm, dtype=torch.float32)
 
+    x_val_t, y_val_t = None, None
+    if has_val:
+        x_val_raw = np.stack([mu1_val, mu2_val, mu_u_val], axis=1)
+        x_val_t = torch.tensor(normalize_minmax(x_val_raw, x_stats), dtype=torch.float32)
+        y_val_t = torch.tensor(normalize_standard(coeffs_val.T, y_stats), dtype=torch.float32)
+
     net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=args.hidden_dim, n_hidden_layers=args.n_hidden_layers)
-    net, loss_history = train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr,
-                                    lr_drop_epoch=args.epochs // 2, return_history=True)
+    result = train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr,
+                         lr_drop_epoch=args.epochs // 2, return_history=True,
+                         x_val=x_val_t, y_val=y_val_t)
+    if has_val:
+        net, loss_history, val_loss_history = result
+    else:
+        net, loss_history = result
+        val_loss_history = None
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     torch.save(net.state_dict(), args.output)
 
-    # loss di training ad ogni epoca, salvata accanto ai pesi - permette di plottare la
-    # curva di convergenza senza dover riallenare
+    # loss di training (e di validazione, se disponibile) ad ogni epoca, salvate accanto ai
+    # pesi - permette di plottare la curva di convergenza senza dover riallenare
     loss_path = str(Path(args.output).with_suffix(".loss.npy"))
     np.save(loss_path, np.array(loss_history))
     print(f"Loss history salvata in {loss_path}")
+    if val_loss_history is not None:
+        val_loss_path = str(Path(args.output).with_suffix(".val_loss.npy"))
+        np.save(val_loss_path, np.array(val_loss_history))
+        print(f"Validation loss history salvata in {val_loss_path}")
 
     # statistiche di normalizzazione + architettura salvate accanto ai pesi - servono a
     # evaluate per de-normalizzare e per ricostruire la STESSA rete (stesse dimensioni)

@@ -102,12 +102,16 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
             (per diagnosticare se la loss e' ancora in discesa o e' in plateau - non
             impatta il training, solo cosa viene restituito)
         x_val, y_val: se dati (es. i coefficienti POD veri sul test set, stessa normalizzazione
-            di y_train), registrano anche la loss di VALIDAZIONE ad ogni epoca - non entra mai
-            nel training (nessun backward su questi dati), serve solo a diagnosticare overfitting
-            (loss di training in discesa ma di validazione in salita)
+            di y_train), abilitano l'EARLY STOPPING: si tiene traccia dei pesi con la loss di
+            validazione piu' bassa vista durante il training (mai usata per il gradiente), e li
+            si ripristina alla fine invece dell'ultimo stato - la loss di training scende quasi
+            sempre per tutte le epoche, ma il punto di minimo overfitting (dove la validazione e'
+            piu' bassa) puo' arrivare molto prima delle epoche massime e sposta a seconda di N/dati,
+            quindi non e' un numero fisso indovinabile a priori (vedi handout)
 
     Returns:
-        net allenato, riportato su CPU. Se return_history=True: (net, loss_history) oppure
+        net allenato (il MIGLIOR checkpoint per validazione, se x_val/y_val sono dati - altrimenti
+        l'ultimo stato), riportato su CPU. Se return_history=True: (net, loss_history) oppure
         (net, loss_history, val_loss_history) se anche x_val/y_val sono dati.
     """
     if device is None:
@@ -128,6 +132,9 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
     epoch = 0
     loss_history = []
     val_loss_history = []
+    best_val_loss = float("inf")
+    best_state = None
+    best_epoch = None
     while loss_value >= tol and epoch < epochs:
         epoch += 1
         optimizer.zero_grad()
@@ -147,6 +154,10 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
         if track_val:
             with torch.no_grad():
                 val_loss_value = loss_fn(net(x_val), y_val).item()
+            if val_loss_value < best_val_loss:
+                best_val_loss = val_loss_value
+                best_epoch = epoch
+                best_state = {k: v.detach().clone() for k, v in net.state_dict().items()}
             if return_history:
                 val_loss_history.append(val_loss_value)
         if epoch % print_every == 0:
@@ -155,6 +166,11 @@ def train_ffnn(net, x_train, y_train, epochs=20000, lr=1e-3, lr_drop_epoch=None,
                 msg += f"  val_loss {val_loss_value:.6e}"
             msg += f"  lr {optimizer.param_groups[0]['lr']:.1e}  device {device}"
             print(msg)
+
+    if track_val and best_state is not None:
+        net.load_state_dict(best_state)
+        print(f"  early stopping: ripristinati i pesi dell'epoca {best_epoch} "
+              f"(val_loss minima = {best_val_loss:.6e}, invece dell'epoca finale {epoch})")
 
     net = net.to("cpu")
     if return_history:

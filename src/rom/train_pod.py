@@ -43,7 +43,9 @@ def parse_args():
     parser.add_argument("--snapshots", required=True, help="path allo snapshot .npz")
     parser.add_argument("--test-snapshots", default=None,
                          help="opzionale: se dato, il plot include anche l'errore di ricostruzione "
-                              "solo-POD su questo set, accanto al decadimento autovalori")
+                              "solo-POD su questo set, accanto al decadimento autovalori - inoltre i "
+                              "coefficienti proiettati sul test vengono salvati nel pod-model, per "
+                              "abilitare l'early stopping in train_reduced_nn.py")
     parser.add_argument("--inner-product", choices=["seminorm", "full"], default="seminorm",
                          help="seminorm = solo A_diff (H1-seminorma); full = A_diff + M_full (H1 completa)")
     parser.add_argument("--energy-threshold", type=float, default=0.9999,
@@ -103,15 +105,28 @@ def main():
     coeffs_y = project_onto_basis(Y, basis_y, X)  # (n_y, n_samples)
     coeffs_p = project_onto_basis(P, basis_p, X)  # (n_p, n_samples)
 
-    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(
-        args.output,
+    npz_dict = dict(
         basis_y=basis_y, basis_p=basis_p,
         eigenvalues_y=eig_y, eigenvalues_p=eig_p,
         coeffs_y=coeffs_y, coeffs_p=coeffs_p,
         mu1=mu1, mu2=mu2, mu_u=mu_u,
         inner_product=args.inner_product, n_modes_y=n_y, n_modes_p=n_p,
     )
+
+    if args.test_snapshots is not None:
+        # coefficienti di VALIDAZIONE veri (proiezione degli snapshot di test, mai visti in
+        # training, sulla stessa base) - abilitano l'early stopping in train_reduced_nn.py
+        print(f"Caricamento test set da {args.test_snapshots} per i coefficienti di validazione ...")
+        test_data = np.load(args.test_snapshots)
+        Y_test, P_test = test_data["Y"], test_data["P"]
+        npz_dict.update(
+            coeffs_y_test=project_onto_basis(Y_test, basis_y, X),
+            coeffs_p_test=project_onto_basis(P_test, basis_p, X),
+            mu1_test=test_data["mu1"], mu2_test=test_data["mu2"], mu_u_test=test_data["mu_u"],
+        )
+
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(args.output, **npz_dict)
     print(f"Base POD salvata in {args.output}")
 
     if args.plot:
@@ -120,10 +135,6 @@ def main():
         default_path = str(Path(tempfile.gettempdir()) / "pod_eigenvalue_decay.png")
 
         if args.test_snapshots is not None:
-            print(f"Caricamento test set da {args.test_snapshots} per l'errore di ricostruzione ...")
-            test_data = np.load(args.test_snapshots)
-            Y_test, P_test = test_data["Y"], test_data["P"]
-
             max_n = min(80, len(eig_y), len(eig_p))
             n_values = range(1, max_n + 1)
             err_y = compute_reconstruction_error_curve(Y, Y_test, X, eigvec_y, n_values)

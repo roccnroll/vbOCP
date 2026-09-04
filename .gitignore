@@ -16,6 +16,7 @@ data/snapshots/*
 !data/snapshots/*_nn.pt
 !data/snapshots/*_nn.norm.npz
 !data/snapshots/*_nn.loss.npy
+!data/snapshots/*_nn.val_loss.npy
 
 # eccezione: mesh usata da configs/test1.yaml, tenuta nel repo (~1.5MB) cosi'
 # non serve rigenerarla (script di generazione non e' un CLI legato al config)
