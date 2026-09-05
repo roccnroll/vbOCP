@@ -41,7 +41,7 @@ from src.rom.pod import (
 from src.dl.common import (
     FFNN, train_ffnn,
     compute_minmax_stats, normalize_minmax,
-    compute_standard_stats, normalize_standard, denormalize_standard,
+    denormalize_standard,
 )
 
 
@@ -68,25 +68,44 @@ def train_and_evaluate(Y, P, Y_test, P_test, X, n_modes, hidden_dim, n_hidden_la
                         mu1, mu2, mu_u, mu1_test, mu2_test, mu_u_test, epochs, lr):
     """Costruisce base+rete per y e p indipendentemente (stesso n_modes per entrambi, ma
     basi separate - non aggregated space, che qui gonfierebbe inutilmente la dimensione di
-    output della rete per l'aggiunto, vedi train_pod.py), valuta errore L2/H1 sul test set."""
+    output della rete per l'aggiunto, vedi train_pod.py), valuta errore L2/H1 sul test set.
+
+    Il test set viene usato anche per l'early stopping (stesso pattern di train_reduced_nn.py:
+    i coefficienti veri proiettati sul test set servono da validation loss durante il training) -
+    NOTA: e' lo stesso set poi usato per l'errore finale riportato, quindi l'errore qui e'
+    ottimisticamente distorto dalla model-selection (vedi handout) - accettabile per uno sweep
+    esplorativo, non per un numero da riportare come stima finale onesta.
+
+    Returns:
+        results: {"y": rel_err_medio, "p": rel_err_medio}
+        histories: {"y": (loss_history, val_loss_history), "p": (...)}
+    """
     results = {}
+    histories = {}
     for field, Y_train_field, Y_test_field in [("y", Y, Y_test), ("p", P, P_test)]:
         basis, _ = build_pod_basis(Y_train_field, X, n_modes)
         coeffs = project_onto_basis(Y_train_field, basis, X)  # (n_modes, n_samples)
+        coeffs_val = project_onto_basis(Y_test_field, basis, X)
 
+        # output NON standardizzato: pesare ugualmente tutti i modi (incluso il rumore sui
+        # modi a bassa energia) peggiora l'errore relativo finale di 2-4x, vedi train_reduced_nn.py
         x_raw = np.stack([mu1, mu2, mu_u], axis=1)
         y_raw = coeffs.T
         x_stats = compute_minmax_stats(x_raw)
-        y_stats = compute_standard_stats(y_raw)
+        y_stats = {"mean": np.zeros(y_raw.shape[1]), "std": np.ones(y_raw.shape[1])}
         x_train = torch.tensor(normalize_minmax(x_raw, x_stats), dtype=torch.float32)
-        y_train = torch.tensor(normalize_standard(y_raw, y_stats), dtype=torch.float32)
-
-        net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
-        net = train_ffnn(net, x_train, y_train, epochs=epochs, lr=lr, lr_drop_epoch=epochs // 2,
-                          print_every=epochs + 1)
+        y_train = torch.tensor(y_raw, dtype=torch.float32)
 
         x_test_raw = np.stack([mu1_test, mu2_test, mu_u_test], axis=1)
         x_test = torch.tensor(normalize_minmax(x_test_raw, x_stats), dtype=torch.float32)
+        y_val = torch.tensor(coeffs_val.T, dtype=torch.float32)
+
+        net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
+        net, loss_hist, val_hist = train_ffnn(net, x_train, y_train, epochs=epochs, lr=lr, lr_drop_epoch=epochs // 2,
+                                               print_every=epochs + 1, return_history=True,
+                                               x_val=x_test, y_val=y_val)
+        histories[field] = (loss_hist, val_hist)
+
         with torch.no_grad():
             coeffs_pred = denormalize_standard(net(x_test).numpy(), y_stats)
         Y_pred = basis @ coeffs_pred.T
@@ -97,7 +116,36 @@ def train_and_evaluate(Y, P, Y_test, P_test, X, n_modes, hidden_dim, n_hidden_la
         rel_err = np.sqrt(np.abs(err_sq)) / np.where(np.sqrt(np.abs(true_sq)) > 0, np.sqrt(np.abs(true_sq)), 1.0)
         results[field] = rel_err.mean()
 
-    return results
+    return results, histories
+
+
+def save_loss_plot(histories, output_csv, sweep_param, value):
+    """Salva la curva loss/val_loss (y e p) di un punto dello sweep, per controllare a occhio
+    se/quando compare overfitting a quel valore del parametro - un file per punto, accanto al
+    .csv principale (es. sweep_n_modes_loss_n_modes50.png)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    plot_path = str(Path(output_csv).with_name(
+        f"{Path(output_csv).stem}_loss_{sweep_param}{value}.png"))
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
+    for ax, field in zip(axes, ["y", "p"]):
+        loss_hist, val_hist = histories[field]
+        ax.semilogy(loss_hist, label="training")
+        ax.semilogy(val_hist, label="validazione (test)")
+        best_epoch = int(np.argmin(val_hist)) + 1
+        ax.axvline(best_epoch, color="k", linestyle=":", alpha=0.5,
+                    label=f"min validazione (epoca {best_epoch})")
+        ax.set_xlabel("epoca")
+        ax.set_ylabel("loss (MSE su coefficienti)")
+        ax.set_title(f"campo {field} - {sweep_param}={value}")
+        ax.legend()
+        ax.grid(True, which="both", alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=80)
+    plt.close(fig)
+    print(f"  Loss plot salvato in {plot_path}")
 
 
 def main():
@@ -136,13 +184,14 @@ def main():
         else:
             n_modes, hidden_dim = args.n_modes, value
 
-        errs = train_and_evaluate(
+        errs, histories = train_and_evaluate(
             Y, P, Y_test, P_test, X, n_modes, hidden_dim, args.n_hidden_layers,
             mu1, mu2, mu_u, mu1_test, mu2_test, mu_u_test, args.epochs, args.lr,
         )
         elapsed = time.time() - start
         print(f"  err_y={errs['y']:.4e}  err_p={errs['p']:.4e}  ({elapsed:.1f}s)")
         rows.append({args.sweep_param: value, "err_y": errs["y"], "err_p": errs["p"]})
+        save_loss_plot(histories, args.output, args.sweep_param, value)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w", newline="") as f:

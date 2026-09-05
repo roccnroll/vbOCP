@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.dl.common import (
     FFNN, train_ffnn,
     compute_minmax_stats, normalize_minmax,
-    compute_standard_stats, normalize_standard,
+    normalize_standard,
 )
 
 
@@ -81,14 +81,18 @@ def main():
     x_raw = np.stack([mu1, mu2, mu_u], axis=1)
     y_raw = coeffs.T  # (n_samples, n_modes)
 
-    # normalizzazione: input in [-1,1] (si abbina a Tanh), output standardizzati
-    # (i coefficienti POD hanno scale molto diverse tra i modi, senza normalizzare
-    # la loss sarebbe dominata dai coefficienti piu' grandi) - le statistiche sono fit SOLO
-    # sul training, e riusate identiche per la validazione
+    # normalizzazione: input in [-1,1] (si abbina a Tanh). L'output (coefficienti POD)
+    # NON viene standardizzato per modo: la MSE grezza pesa naturalmente di piu' i modi
+    # a energia/varianza maggiore (i piu' importanti per la ricostruzione fisica e i piu'
+    # puliti come dipendenza da mu), mentre standardizzare (varianza 1 per ogni modo)
+    # da' lo stesso peso anche ai modi a bassa energia, spesso dominati da rumore/dipendenza
+    # debole da mu - misurato empiricamente: standardizzare PEGGIORA l'errore relativo finale
+    # di 2-4x sia su y che su p (vedi handout). y_stats resta a media 0/std 1 (identita')
+    # solo per compatibilita' col formato del .norm.npz letto da evaluate_pod_nn.py.
     x_stats = compute_minmax_stats(x_raw)
-    y_stats = compute_standard_stats(y_raw)
+    y_stats = {"mean": np.zeros(y_raw.shape[1]), "std": np.ones(y_raw.shape[1])}
     x_norm = normalize_minmax(x_raw, x_stats)
-    y_norm = normalize_standard(y_raw, y_stats)
+    y_norm = y_raw
 
     print(f"Training FFNN mu -> coefficienti POD({args.field}) (normalizzati) ...")
     x_train = torch.tensor(x_norm, dtype=torch.float32)
