@@ -34,6 +34,12 @@ def parse_args():
                          help="quale variabile allenare (legge coeffs_<field>/n_modes_<field>)")
     parser.add_argument("--epochs", type=int, default=20000)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--tol", type=float, default=1e-12,
+                         help="soglia di stop anticipato sulla loss di training (default quasi disattivata: "
+                              "1e-5 aveva senso solo con l'output standardizzato, su coefficienti grezzi "
+                              "e' una soglia assoluta arbitraria che si raggiunge a scale diverse per y/p, "
+                              "facendo fermare i due training a un numero di epoche diverso in modo spurio "
+                              "- meglio lasciar decidere solo epochs/early stopping)")
     parser.add_argument("--hidden-dim", type=int, default=30)
     parser.add_argument("--n-hidden-layers", type=int, default=4)
     parser.add_argument("--n-modes", type=int, default=None,
@@ -105,7 +111,7 @@ def main():
         y_val_t = torch.tensor(normalize_standard(coeffs_val.T, y_stats), dtype=torch.float32)
 
     net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=args.hidden_dim, n_hidden_layers=args.n_hidden_layers)
-    result = train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr,
+    result = train_ffnn(net, x_train, y_train, epochs=args.epochs, lr=args.lr, tol=args.tol,
                          lr_drop_epoch=args.epochs // 2, return_history=True,
                          x_val=x_val_t, y_val=y_val_t)
     if has_val:

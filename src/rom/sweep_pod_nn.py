@@ -60,12 +60,16 @@ def parse_args():
     parser.add_argument("--n-hidden-layers", type=int, default=4)
     parser.add_argument("--epochs", type=int, default=50000)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--tol", type=float, default=1e-12,
+                         help="soglia di stop anticipato sulla loss - vedi train_reduced_nn.py, "
+                              "quasi disattivata perche' su coefficienti grezzi (non standardizzati) "
+                              "e' una soglia assoluta che si raggiunge a scale diverse per y/p")
     parser.add_argument("--output", required=True, help="path del .csv con i risultati")
     return parser.parse_args()
 
 
 def train_and_evaluate(Y, P, Y_test, P_test, X, n_modes, hidden_dim, n_hidden_layers,
-                        mu1, mu2, mu_u, mu1_test, mu2_test, mu_u_test, epochs, lr):
+                        mu1, mu2, mu_u, mu1_test, mu2_test, mu_u_test, epochs, lr, tol):
     """Costruisce base+rete per y e p indipendentemente (stesso n_modes per entrambi, ma
     basi separate - non aggregated space, che qui gonfierebbe inutilmente la dimensione di
     output della rete per l'aggiunto, vedi train_pod.py), valuta errore L2/H1 sul test set.
@@ -101,7 +105,8 @@ def train_and_evaluate(Y, P, Y_test, P_test, X, n_modes, hidden_dim, n_hidden_la
         y_val = torch.tensor(coeffs_val.T, dtype=torch.float32)
 
         net = FFNN(input_dim=3, output_dim=n_modes, hidden_dim=hidden_dim, n_hidden_layers=n_hidden_layers)
-        net, loss_hist, val_hist = train_ffnn(net, x_train, y_train, epochs=epochs, lr=lr, lr_drop_epoch=epochs // 2,
+        net, loss_hist, val_hist = train_ffnn(net, x_train, y_train, epochs=epochs, lr=lr, tol=tol,
+                                               lr_drop_epoch=epochs // 2,
                                                print_every=epochs + 1, return_history=True,
                                                x_val=x_test, y_val=y_val)
         histories[field] = (loss_hist, val_hist)
@@ -186,7 +191,7 @@ def main():
 
         errs, histories = train_and_evaluate(
             Y, P, Y_test, P_test, X, n_modes, hidden_dim, args.n_hidden_layers,
-            mu1, mu2, mu_u, mu1_test, mu2_test, mu_u_test, args.epochs, args.lr,
+            mu1, mu2, mu_u, mu1_test, mu2_test, mu_u_test, args.epochs, args.lr, args.tol,
         )
         elapsed = time.time() - start
         print(f"  err_y={errs['y']:.4e}  err_p={errs['p']:.4e}  ({elapsed:.1f}s)")
