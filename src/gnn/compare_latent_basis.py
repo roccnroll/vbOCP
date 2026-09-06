@@ -45,7 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.inner_product import assemble_full_mass_matrix
-from src.gnn.train_gnn import build_combined_dataset, inverse_scale_channel, build_hyperparams
+from src.gnn.train_gnn import build_combined_dataset, build_hyperparams
 from src.gnn.convert_to_gca_rom import restrict_to_dof
 from src.dl.common import normalize_minmax
 
@@ -139,28 +139,39 @@ def main():
         raise ValueError(f"--n-modes {args.n_modes} > bottleneck_dim della rete ({bottleneck_dim})")
     n_modes = args.n_modes
 
-    # batch di n_modes grafi IDENTICI nella struttura (stessa mesh - il decoder usa solo
-    # edge_index/edge_attr/num_graphs, non i valori nodali, vedi doc in cima al file) - i
-    # primi n_modes grafi del test set bastano, i loro valori nodali non contano
+    # decodifica UN vettore canonico alla volta (num_graphs=1 per chiamata) - stesso
+    # identico pattern di testing.evaluate() (val_loader a batch_size=1), che assegna
+    # model.solo_decoder(z_map, data) con un solo grafo in results[index, :, :]. Farlo
+    # su un batch di piu' grafi insieme e' ambiguo (l'ordine di concatenazione dei nodi
+    # lungo la prima dimensione non e' quello atteso - provato e sbagliato), un grafo
+    # alla volta e' piu' lento ma inequivocabilmente corretto (15 forward pass, costo
+    # trascurabile)
     from torch_geometric.data import Batch
-    graph_batch = Batch.from_data_list([test_dataset[i] for i in range(n_modes)])
+    decoded_list = []
+    for i in range(n_modes):
+        z_i = torch.zeros(1, bottleneck_dim, dtype=torch.get_default_dtype())
+        z_i[0, i] = 1.0
+        single_graph = Batch.from_data_list([test_dataset[i]])  # valori nodali non usati dal decoder
+        with torch.no_grad():
+            decoded_list.append(model.solo_decoder(z_i, single_graph))  # (num_nodes, comp)
+    decoded = torch.stack(decoded_list, dim=0)  # (n_modes, num_nodes, comp)
 
-    # base canonica dello spazio latente: e_i = 1 in posizione i, 0 altrove
-    z_canonical = torch.eye(n_modes, bottleneck_dim, dtype=torch.get_default_dtype())
-
-    print(f"Decodifica di {n_modes} vettori della base canonica (bottleneck_dim={bottleneck_dim}) ...")
-    with torch.no_grad():
-        decoded = model.solo_decoder(z_canonical, graph_batch)
-    # solo_decoder su un batch di grafi restituisce i nodi concatenati lungo la prima
-    # dimensione (n_modes * num_nodes, comp), non impilati in una dimensione a parte
-    # (testing.evaluate() lo fa un grafo alla volta, batch_size=1, quindi non ha questo
-    # problema) - li separiamo qui assumendo che Batch.from_data_list preservi l'ordine
-    # dei nodi per grafo (vero per grafi con la stessa identica topologia)
-    num_nodes = decoded.shape[0] // n_modes
-    decoded = decoded.reshape(n_modes, num_nodes, HyperParams.comp)
-
-    decoded_y_full = inverse_scale_channel(decoded[:, :, 0], scaler_test[0], train_args.scaling_type).numpy()
-    decoded_p_full = inverse_scale_channel(decoded[:, :, 1], scaler_test[1], train_args.scaling_type).numpy()
+    # inverse-transform PARZIALE: solo il primo stadio dello scaler (scaler_s, tarato per
+    # nodo attraverso la popolazione - dimensione = numero di nodi, riusabile per un batch
+    # di qualunque dimensione). Il secondo stadio (scaler_f, "per-campione") e' tarato
+    # esattamente sui 150 campioni REALI del test set (stessa natura del bug di leak/
+    # popolazione-fissa gia' visto per evaluate_gnn_single.py) - non puo' invertire un
+    # batch di n_modes vettori sintetici. Per un confronto di similarita' coseno (solo
+    # pattern spaziale, gia' normalizzato per norma) la scala/offset per-campione che
+    # quello stadio ripristinerebbe non e' comunque significativa per un vettore canonico
+    # senza un "vero" campione a cui corrisponde - saltarlo e' la scelta corretta qui, non
+    # un'approssimazione grossolana.
+    if train_args.scaling_type != 4:
+        raise NotImplementedError("questo script assume scaling_type=4 (stesso usato in tutta la pipeline)")
+    scaler_s_y, _ = scaler_test[0]
+    scaler_s_p, _ = scaler_test[1]
+    decoded_y_full = scaler_s_y.inverse_transform(decoded[:, :, 0].numpy()).T  # (num_nodes, n_modes)
+    decoded_p_full = scaler_s_p.inverse_transform(decoded[:, :, 1].numpy()).T
     decoded_y = restrict_to_dof(decoded_y_full, node_to_dof)  # (Nh, n_modes)
     decoded_p = restrict_to_dof(decoded_p_full, node_to_dof)
 
