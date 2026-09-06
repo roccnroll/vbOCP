@@ -151,6 +151,13 @@ def main():
     print(f"Decodifica di {n_modes} vettori della base canonica (bottleneck_dim={bottleneck_dim}) ...")
     with torch.no_grad():
         decoded = model.solo_decoder(z_canonical, graph_batch)
+    # solo_decoder su un batch di grafi restituisce i nodi concatenati lungo la prima
+    # dimensione (n_modes * num_nodes, comp), non impilati in una dimensione a parte
+    # (testing.evaluate() lo fa un grafo alla volta, batch_size=1, quindi non ha questo
+    # problema) - li separiamo qui assumendo che Batch.from_data_list preservi l'ordine
+    # dei nodi per grafo (vero per grafi con la stessa identica topologia)
+    num_nodes = decoded.shape[0] // n_modes
+    decoded = decoded.reshape(n_modes, num_nodes, HyperParams.comp)
 
     decoded_y_full = inverse_scale_channel(decoded[:, :, 0], scaler_test[0], train_args.scaling_type).numpy()
     decoded_p_full = inverse_scale_channel(decoded[:, :, 1], scaler_test[1], train_args.scaling_type).numpy()
