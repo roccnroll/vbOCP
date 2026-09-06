@@ -70,6 +70,9 @@ def parse_args():
     parser.add_argument("--plot-n-modes", type=int, default=5,
                          help="quanti modi includere nel confronto visivo campo-su-mesh (default 5, "
                               "un plot per modo diventa pesante oltre una decina)")
+    parser.add_argument("--plot-fields", default="y,p",
+                         help="quali campi includere nel confronto visivo, separati da virgola "
+                              "(default 'y,p', es. 'y' per il solo stato)")
     return parser.parse_args()
 
 
@@ -241,34 +244,36 @@ def main():
 
         n_plot = min(args.plot_n_modes, n_modes)
         base_path = str(Path(args.output).with_suffix("")) if args.output else "latent_basis_comparison"
+        fields_to_plot = [f.strip() for f in args.plot_fields.split(",") if f.strip()]
+
+        # segno e scala di entrambi i lati sono arbitrari (basi/direzioni, non campi fisici) -
+        # normalizza a norma 1 e allinea il segno della GNN a quello del coseno gia' calcolato,
+        # cosi' il confronto visivo non e' fuorviato da un colore invertito per puro segno
+        def _prep(pod, gnn, cos):
+            pod_n = pod / (np.linalg.norm(pod) or 1.0)
+            gnn_n = gnn / (np.linalg.norm(gnn) or 1.0)
+            if cos < 0:
+                gnn_n = -gnn_n
+            return pod_n, gnn_n
 
         for i in range(n_plot):
             # espande i modi POD (spazio DOF) a tutti i nodi mesh, come i campi decodificati
             # dalla GNN (gia' su tutti i nodi) - dirichlet_value=0 perche' un modo POD e' un
             # vettore di base, non un campo fisico con un vero valore al bordo
-            pod_y_full = reconstruct_full_field(basis_y[:, i], node_to_dof, dirichlet_value=0.0)
-            pod_p_full = reconstruct_full_field(basis_p[:, i], node_to_dof, dirichlet_value=0.0)
-            gnn_y_full = decoded_y_full[:, i]
-            gnn_p_full = decoded_p_full[:, i]
+            field_data = {}
+            if "y" in fields_to_plot:
+                pod_y_full = reconstruct_full_field(basis_y[:, i], node_to_dof, dirichlet_value=0.0)
+                field_data["y"] = _prep(pod_y_full, decoded_y_full[:, i], rows[i]["cos_y"])
+            if "p" in fields_to_plot:
+                pod_p_full = reconstruct_full_field(basis_p[:, i], node_to_dof, dirichlet_value=0.0)
+                field_data["p"] = _prep(pod_p_full, decoded_p_full[:, i], rows[i]["cos_p"])
 
-            # segno e scala di entrambi i lati sono arbitrari (basi/direzioni, non campi fisici) -
-            # normalizza a norma 1 e allinea il segno della GNN a quello del coseno gia' calcolato,
-            # cosi' il confronto visivo non e' fuorviato da un colore invertito per puro segno
-            def _prep(pod, gnn, cos):
-                pod_n = pod / (np.linalg.norm(pod) or 1.0)
-                gnn_n = gnn / (np.linalg.norm(gnn) or 1.0)
-                if cos < 0:
-                    gnn_n = -gnn_n
-                return pod_n, gnn_n
-
-            pod_y_n, gnn_y_n = _prep(pod_y_full, gnn_y_full, rows[i]["cos_y"])
-            pod_p_n, gnn_p_n = _prep(pod_p_full, gnn_p_full, rows[i]["cos_p"])
-
-            fig, axes = plt.subplots(2, 3, figsize=(15, 8))
-            for row, (label, pod_field, gnn_field) in enumerate(
-                    [("y", pod_y_n, gnn_y_n), ("p", pod_p_n, gnn_p_n)]):
+            fig, axes = plt.subplots(len(field_data), 3, figsize=(15, 4 * len(field_data)), squeeze=False)
+            for row, label in enumerate(field_data):
+                pod_field, gnn_field = field_data[label]
                 vmin, vmax = pod_field.min(), pod_field.max()
                 levels = np.linspace(vmin, vmax, 200) if vmax > vmin else 200
+                cos_val = rows[i]["cos_y"] if label == "y" else rows[i]["cos_p"]
 
                 ax = axes[row][0]
                 tc = ax.tricontourf(triang, pod_field, levels=levels, cmap="jet")
@@ -279,7 +284,6 @@ def main():
                 ax = axes[row][1]
                 tc = ax.tricontourf(triang, gnn_field, levels=levels, cmap="jet", extend="both")
                 plt.colorbar(tc, ax=ax)
-                cos_val = rows[i]["cos_y"] if label == "y" else rows[i]["cos_p"]
                 ax.set_title(f"GNN base canonica {i + 1} ({label}, |cos|={abs(cos_val):.3f})")
                 ax.set_aspect("equal")
 
