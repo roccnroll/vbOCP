@@ -46,7 +46,7 @@ from src.full_order.mesh import load_mesh
 from src.full_order.assembly import assemble_operators
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.gnn.train_gnn import build_combined_dataset, build_hyperparams
-from src.gnn.convert_to_gca_rom import restrict_to_dof
+from src.gnn.convert_to_gca_rom import restrict_to_dof, reconstruct_full_field
 from src.dl.common import normalize_minmax
 
 
@@ -62,8 +62,14 @@ def parse_args():
                          help="quanti modi/direzioni confrontare (<= bottleneck_dim della rete e <= modi POD disponibili)")
     parser.add_argument("--output", default=None, help="opzionale: .csv con le similarita' coseno per modo")
     parser.add_argument("--save-plot", action="store_true",
-                         help="salva un plot (norma L2 dei coefficienti sulla base FOM non serve qui: "
-                              "confronto in norma euclidea su valori nodali) delle similarita' coseno per modo")
+                         help="salva un plot a barre delle similarita' coseno per modo")
+    parser.add_argument("--save-field-plots", action="store_true",
+                         help="salva anche un confronto VISIVO (campo su mesh, POD vs GNN affiancati) "
+                              "per i primi --plot-n-modes modi - piu' lento/pesante del plot a barre, "
+                              "utile per vedere a occhio cosa significa un coseno alto o basso")
+    parser.add_argument("--plot-n-modes", type=int, default=5,
+                         help="quanti modi includere nel confronto visivo campo-su-mesh (default 5, "
+                              "un plot per modo diventa pesante oltre una decina)")
     return parser.parse_args()
 
 
@@ -217,6 +223,78 @@ def main():
         plot_path = str(Path(args.output).with_suffix(".png")) if args.output else "latent_basis_comparison.png"
         plt.savefig(plot_path, dpi=100)
         print(f"Plot salvato in {plot_path}")
+
+    if args.save_field_plots:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import matplotlib.tri as mtri
+
+        mesh = mesh_data["mesh"]
+        x_nodes = np.array([mesh.cell0_d_coordinate_x(i) for i in range(mesh.cell0_d_total_number())])
+        y_nodes = np.array([mesh.cell0_d_coordinate_y(i) for i in range(mesh.cell0_d_total_number())])
+        triangles = np.array([
+            [mesh.cell2_d_vertex(t, 0), mesh.cell2_d_vertex(t, 1), mesh.cell2_d_vertex(t, 2)]
+            for t in range(mesh.cell2_d_total_number())
+        ])
+        triang = mtri.Triangulation(x_nodes, y_nodes, triangles)
+
+        n_plot = min(args.plot_n_modes, n_modes)
+        base_path = str(Path(args.output).with_suffix("")) if args.output else "latent_basis_comparison"
+
+        for i in range(n_plot):
+            # espande i modi POD (spazio DOF) a tutti i nodi mesh, come i campi decodificati
+            # dalla GNN (gia' su tutti i nodi) - dirichlet_value=0 perche' un modo POD e' un
+            # vettore di base, non un campo fisico con un vero valore al bordo
+            pod_y_full = reconstruct_full_field(basis_y[:, i], node_to_dof, dirichlet_value=0.0)
+            pod_p_full = reconstruct_full_field(basis_p[:, i], node_to_dof, dirichlet_value=0.0)
+            gnn_y_full = decoded_y_full[:, i]
+            gnn_p_full = decoded_p_full[:, i]
+
+            # segno e scala di entrambi i lati sono arbitrari (basi/direzioni, non campi fisici) -
+            # normalizza a norma 1 e allinea il segno della GNN a quello del coseno gia' calcolato,
+            # cosi' il confronto visivo non e' fuorviato da un colore invertito per puro segno
+            def _prep(pod, gnn, cos):
+                pod_n = pod / (np.linalg.norm(pod) or 1.0)
+                gnn_n = gnn / (np.linalg.norm(gnn) or 1.0)
+                if cos < 0:
+                    gnn_n = -gnn_n
+                return pod_n, gnn_n
+
+            pod_y_n, gnn_y_n = _prep(pod_y_full, gnn_y_full, rows[i]["cos_y"])
+            pod_p_n, gnn_p_n = _prep(pod_p_full, gnn_p_full, rows[i]["cos_p"])
+
+            fig, axes = plt.subplots(2, 3, figsize=(15, 8))
+            for row, (label, pod_field, gnn_field) in enumerate(
+                    [("y", pod_y_n, gnn_y_n), ("p", pod_p_n, gnn_p_n)]):
+                vmin, vmax = pod_field.min(), pod_field.max()
+                levels = np.linspace(vmin, vmax, 200) if vmax > vmin else 200
+
+                ax = axes[row][0]
+                tc = ax.tricontourf(triang, pod_field, levels=levels, cmap="jet")
+                plt.colorbar(tc, ax=ax)
+                ax.set_title(f"Modo POD {i + 1} ({label}, normalizzato)")
+                ax.set_aspect("equal")
+
+                ax = axes[row][1]
+                tc = ax.tricontourf(triang, gnn_field, levels=levels, cmap="jet", extend="both")
+                plt.colorbar(tc, ax=ax)
+                cos_val = rows[i]["cos_y"] if label == "y" else rows[i]["cos_p"]
+                ax.set_title(f"GNN base canonica {i + 1} ({label}, |cos|={abs(cos_val):.3f})")
+                ax.set_aspect("equal")
+
+                ax = axes[row][2]
+                tc = ax.tricontourf(triang, np.abs(pod_field - gnn_field), levels=200, cmap="jet")
+                plt.colorbar(tc, ax=ax)
+                ax.set_title(f"|differenza| ({label}, normalizzati)")
+                ax.set_aspect("equal")
+
+            fig.suptitle(f"Modo {i + 1}: POD vs GNN (base canonica dello spazio latente)")
+            plt.tight_layout()
+            field_plot_path = f"{base_path}_mode{i + 1}.png"
+            plt.savefig(field_plot_path, dpi=110)
+            plt.close(fig)
+            print(f"Confronto visivo modo {i + 1} salvato in {field_plot_path}")
 
 
 if __name__ == "__main__":
