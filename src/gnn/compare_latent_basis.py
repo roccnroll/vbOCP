@@ -156,22 +156,22 @@ def main():
             decoded_list.append(model.solo_decoder(z_i, single_graph))  # (num_nodes, comp)
     decoded = torch.stack(decoded_list, dim=0)  # (n_modes, num_nodes, comp)
 
-    # inverse-transform PARZIALE: solo il primo stadio dello scaler (scaler_s, tarato per
-    # nodo attraverso la popolazione - dimensione = numero di nodi, riusabile per un batch
-    # di qualunque dimensione). Il secondo stadio (scaler_f, "per-campione") e' tarato
-    # esattamente sui 150 campioni REALI del test set (stessa natura del bug di leak/
-    # popolazione-fissa gia' visto per evaluate_gnn_single.py) - non puo' invertire un
-    # batch di n_modes vettori sintetici. Per un confronto di similarita' coseno (solo
-    # pattern spaziale, gia' normalizzato per norma) la scala/offset per-campione che
-    # quello stadio ripristinerebbe non e' comunque significativa per un vettore canonico
-    # senza un "vero" campione a cui corrisponde - saltarlo e' la scelta corretta qui, non
-    # un'approssimazione grossolana.
+    # inverse-transform PARZIALE: solo lo stadio dello scaler tarato per NODO (dimensione
+    # = numero di nodi mesh, riusabile per un batch di qualunque dimensione) - verificato
+    # empiricamente essere il SECONDO elemento della tupla (scaler_f), non il primo: il
+    # primo (scaler_s) e' quello tarato esattamente sui 150 campioni REALI del test set
+    # (stessa natura del bug di leak/popolazione-fissa gia' visto per
+    # evaluate_gnn_single.py) - non puo' invertire un batch di n_modes vettori sintetici,
+    # e infatti dava un errore di shape (scale_ di lunghezza 150). Per un confronto di
+    # similarita' coseno (solo pattern spaziale, gia' normalizzato per norma) la
+    # scala/offset per-campione che lo stadio saltato ripristinerebbe non e' comunque
+    # significativa per un vettore canonico senza un "vero" campione a cui corrisponde.
     if train_args.scaling_type != 4:
         raise NotImplementedError("questo script assume scaling_type=4 (stesso usato in tutta la pipeline)")
-    scaler_s_y, _ = scaler_test[0]
-    scaler_s_p, _ = scaler_test[1]
-    decoded_y_full = scaler_s_y.inverse_transform(decoded[:, :, 0].numpy()).T  # (num_nodes, n_modes)
-    decoded_p_full = scaler_s_p.inverse_transform(decoded[:, :, 1].numpy()).T
+    _, scaler_f_y = scaler_test[0]
+    _, scaler_f_p = scaler_test[1]
+    decoded_y_full = scaler_f_y.inverse_transform(decoded[:, :, 0].numpy()).T  # (num_nodes, n_modes)
+    decoded_p_full = scaler_f_p.inverse_transform(decoded[:, :, 1].numpy()).T
     decoded_y = restrict_to_dof(decoded_y_full, node_to_dof)  # (Nh, n_modes)
     decoded_p = restrict_to_dof(decoded_p_full, node_to_dof)
 
