@@ -294,24 +294,29 @@ def main():
             fig, axes = plt.subplots(len(field_data), 3, figsize=(15, 4 * len(field_data)), squeeze=False)
             for row, label in enumerate(field_data):
                 pod_field, gnn_field = field_data[label]
-                vmin, vmax = pod_field.min(), pod_field.max()
-                levels = np.linspace(vmin, vmax, 200) if vmax > vmin else 200
+                # campi con segno (basi normalizzate, non quantita' fisiche positive) - palette
+                # divergente centrata a zero (RdBu_r), non jet (non percettivamente uniforme e
+                # senza uno zero neutro, fuorviante per dati con segno)
+                vabs = max(abs(pod_field.min()), abs(pod_field.max()))
+                levels = np.linspace(-vabs, vabs, 200) if vabs > 0 else 200
                 cos_val = rows[i]["cos_y"] if label == "y" else rows[i]["cos_p"]
 
                 ax = axes[row][0]
-                tc = ax.tricontourf(triang, pod_field, levels=levels, cmap="jet")
+                tc = ax.tricontourf(triang, pod_field, levels=levels, cmap="RdBu_r")
                 plt.colorbar(tc, ax=ax)
                 ax.set_title(f"Modo POD {i + 1} ({label}, normalizzato)")
                 ax.set_aspect("equal")
 
                 ax = axes[row][1]
-                tc = ax.tricontourf(triang, gnn_field, levels=levels, cmap="jet", extend="both")
+                tc = ax.tricontourf(triang, gnn_field, levels=levels, cmap="RdBu_r", extend="both")
                 plt.colorbar(tc, ax=ax)
                 ax.set_title(f"GNN e_{dominance_order[i] + 1} ({label}, |cos|={abs(cos_val):.3f})")
                 ax.set_aspect("equal")
 
                 ax = axes[row][2]
-                tc = ax.tricontourf(triang, np.abs(pod_field - gnn_field), levels=200, cmap="jet")
+                # differenza assoluta: quantita' non negativa, palette sequenziale percettivamente
+                # uniforme (viridis) invece di jet
+                tc = ax.tricontourf(triang, np.abs(pod_field - gnn_field), levels=200, cmap="viridis")
                 plt.colorbar(tc, ax=ax)
                 ax.set_title(f"|differenza| ({label}, normalizzati)")
                 ax.set_aspect("equal")
