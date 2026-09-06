@@ -148,6 +148,24 @@ def main():
         raise ValueError(f"--n-modes {args.n_modes} > bottleneck_dim della rete ({bottleneck_dim})")
     n_modes = args.n_modes
 
+    # ordine di "dominanza" delle direzioni canoniche: i vettori e_i restano quelli
+    # (nessuna rotazione/PCA), ma li ordiniamo per quanto i codici latenti VERI (z =
+    # mapping(mu) sui campioni di training) variano lungo quella coordinata - una
+    # coordinata lungo cui z non varia mai e' una direzione che la rete non usa per
+    # distinguere tra parametri diversi, analogo (ma piu' semplice della PCA completa,
+    # che ruoterebbe gli assi) di un autovalore POD piccolo
+    mu_stats = {"min": np.array(meta["mu_min"]), "max": np.array(meta["mu_max"])}
+    params_train_norm = normalize_minmax(params_np[train_snapshots], mu_stats)
+    params_train_t = torch.tensor(params_train_norm, dtype=torch.get_default_dtype())
+    with torch.no_grad():
+        z_train = model.mapping(params_train_t)
+    variance_per_dim = z_train.var(dim=0).numpy()
+    dominance_order = np.argsort(-variance_per_dim)  # indici originali, per varianza decrescente
+
+    print(f"\nVarianza dei codici latenti per coordinata (ordine di dominanza, indice originale):")
+    for rank, idx in enumerate(dominance_order):
+        print(f"  rango {rank + 1:>2}: coordinata {idx + 1:>2}  varianza={variance_per_dim[idx]:.4e}")
+
     # decodifica UN vettore canonico alla volta (num_graphs=1 per chiamata) - stesso
     # identico pattern di testing.evaluate() (val_loader a batch_size=1), che assegna
     # model.solo_decoder(z_map, data) con un solo grafo in results[index, :, :]. Farlo
@@ -155,12 +173,17 @@ def main():
     # lungo la prima dimensione non e' quello atteso - provato e sbagliato), un grafo
     # alla volta e' piu' lento ma inequivocabilmente corretto (15 forward pass, costo
     # trascurabile)
+    # per ogni rango (0=piu' dominante) decodifica il vettore canonico e_idx con idx =
+    # dominance_order[rango] - e_idx resta esattamente quello (nessuna rotazione), solo
+    # l'ORDINE con cui li confrontiamo ai modi POD (anch'essi ordinati per energia
+    # decrescente) segue la dominanza appena calcolata invece dell'indice grezzo 0..14
     from torch_geometric.data import Batch
     decoded_list = []
-    for i in range(n_modes):
+    for rank in range(n_modes):
+        idx = dominance_order[rank]
         z_i = torch.zeros(1, bottleneck_dim, dtype=torch.get_default_dtype())
-        z_i[0, i] = 1.0
-        single_graph = Batch.from_data_list([test_dataset[i]])  # valori nodali non usati dal decoder
+        z_i[0, idx] = 1.0
+        single_graph = Batch.from_data_list([test_dataset[rank]])  # valori nodali non usati dal decoder
         with torch.no_grad():
             decoded_list.append(model.solo_decoder(z_i, single_graph))  # (num_nodes, comp)
     decoded = torch.stack(decoded_list, dim=0)  # (n_modes, num_nodes, comp)
@@ -193,18 +216,18 @@ def main():
         n_modes = n_modes_pod
 
     rows = []
-    print(f"\n{'modo':>4}  {'cos(y_gnn, y_pod)':>18}  {'cos(p_gnn, p_pod)':>18}")
+    print(f"\n{'rango':>5}  {'coord.':>6}  {'cos(y_gnn, y_pod)':>18}  {'cos(p_gnn, p_pod)':>18}")
     for i in range(n_modes):
         cos_y = cosine_similarity(decoded_y[:, i], basis_y[:, i])
         cos_p = cosine_similarity(decoded_p[:, i], basis_p[:, i])
-        rows.append({"mode": i + 1, "cos_y": cos_y, "cos_p": cos_p})
-        print(f"{i + 1:>4}  {cos_y:>18.4f}  {cos_p:>18.4f}")
+        rows.append({"mode": i + 1, "latent_coord": int(dominance_order[i]) + 1, "cos_y": cos_y, "cos_p": cos_p})
+        print(f"{i + 1:>5}  {dominance_order[i] + 1:>6}  {cos_y:>18.4f}  {cos_p:>18.4f}")
 
     if args.output is not None:
         import csv
         Path(args.output).parent.mkdir(parents=True, exist_ok=True)
         with open(args.output, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=["mode", "cos_y", "cos_p"])
+            writer = csv.DictWriter(f, fieldnames=["mode", "latent_coord", "cos_y", "cos_p"])
             writer.writeheader()
             writer.writerows(rows)
         print(f"\nRisultati salvati in {args.output}")
@@ -284,7 +307,7 @@ def main():
                 ax = axes[row][1]
                 tc = ax.tricontourf(triang, gnn_field, levels=levels, cmap="jet", extend="both")
                 plt.colorbar(tc, ax=ax)
-                ax.set_title(f"GNN base canonica {i + 1} ({label}, |cos|={abs(cos_val):.3f})")
+                ax.set_title(f"GNN e_{dominance_order[i] + 1} ({label}, |cos|={abs(cos_val):.3f})")
                 ax.set_aspect("equal")
 
                 ax = axes[row][2]
@@ -293,7 +316,8 @@ def main():
                 ax.set_title(f"|differenza| ({label}, normalizzati)")
                 ax.set_aspect("equal")
 
-            fig.suptitle(f"Modo {i + 1}: POD vs GNN (base canonica dello spazio latente)")
+            fig.suptitle(f"Rango dominanza {i + 1} (coordinata latente {dominance_order[i] + 1}): "
+                         f"POD vs GNN (base canonica)")
             plt.tight_layout()
             field_plot_path = f"{base_path}_mode{i + 1}.png"
             plt.savefig(field_plot_path, dpi=110)
