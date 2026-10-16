@@ -95,7 +95,21 @@ def assemble_operators(mesh_data, omega_obs_regions):
         "node_to_dof": node_to_dof,
     }
 
-def assemble_control_matrix(mesh_data, node_to_dof, mu_u, control_markers=(8, 10)):
+def get_control_kwargs(config):
+    """Legge da config['problem']['control_boundary'] marker e offset di Gamma_C.
+
+    Default (config senza la sezione) = Test_1: marker (8, 10), x_ctrl = 1 + mu_u.
+    Restituisce kwargs da passare a assemble_control_matrix / get_boundary_mu_u_candidates /
+    extract_boundary_control_trace.
+    """
+    cfg = config.get("problem", {}).get("control_boundary", {})
+    return {
+        "control_markers": tuple(cfg.get("markers", (8, 10))),
+        "x_offset": float(cfg.get("x_offset", 1.0)),
+    }
+
+
+def assemble_control_matrix(mesh_data, node_to_dof, mu_u, control_markers=(8, 10), x_offset=1.0):
     """Assembla la matrice di controllo C(mu_u) sul bordo Gamma_C.
 
     Args:
@@ -110,7 +124,8 @@ def assemble_control_matrix(mesh_data, node_to_dof, mu_u, control_markers=(8, 10
     mesh = mesh_data["mesh"]
     Nh   = mesh_data["Nh"]
 
-    x_ctrl = 1.0 + mu_u
+    # x_offset=1.0 per Test_1 (x_ctrl = 1+mu_u); 0.0 per il delfino (x_ctrl = mu_u)
+    x_ctrl = x_offset + mu_u
 
     node_coords_x = np.array([mesh.cell0_d_coordinate_x(i)
                                for i in range(mesh.cell0_d_total_number())])

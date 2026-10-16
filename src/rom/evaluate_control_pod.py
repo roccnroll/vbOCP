@@ -20,7 +20,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.full_order.mesh import load_mesh
-from src.full_order.assembly import assemble_operators
+from src.full_order.assembly import assemble_operators, get_control_kwargs
 from src.rom.control import extract_boundary_control_trace
 from src.rom.pod import project_onto_basis
 
@@ -54,7 +54,7 @@ def main():
     U_true = test_data["U"]
 
     print("Estrazione traccia di controllo vera (test set) ...")
-    boundary_x_test, U_boundary_true = extract_boundary_control_trace(mesh_data, node_to_dof, U_true, mu_u)
+    boundary_x_test, U_boundary_true = extract_boundary_control_trace(mesh_data, node_to_dof, U_true, mu_u, **get_control_kwargs(config))
 
     if not np.allclose(boundary_x_test, pod_data["boundary_x"]):
         raise ValueError("I nodi di bordo del test set non coincidono con quelli del modello - mesh diversa?")

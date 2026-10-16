@@ -26,7 +26,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.full_order.mesh import load_mesh
-from src.full_order.assembly import assemble_operators, assemble_control_matrix, assemble_dirichlet_and_source
+from src.full_order.assembly import assemble_operators, assemble_control_matrix, assemble_dirichlet_and_source, get_control_kwargs
 from src.full_order.solve import solve_otd
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.gnn.train_gnn import build_combined_dataset, inverse_scale_channel, relative_error, build_hyperparams
@@ -52,6 +52,48 @@ def parse_args():
                               "evaluate_gnn_single.py) - serve solo per confrontare le due modalita', "
                               "non e' il default consigliato (popolazione di 1 e' statisticamente degenere)")
     return parser.parse_args()
+
+
+def inverse_scale_output(out, scaler, train_args):
+    """out: [n_campioni, n_nodi, comp] scalato -> lista di campi de-normalizzati (uno per canale)."""
+    if train_args.comp == 1:
+        return [inverse_scale_channel(out[:, :, 0], scaler, train_args.scaling_type)]
+    return [inverse_scale_channel(out[:, :, c], scaler[c], train_args.scaling_type) for c in range(2)]
+
+
+def time_gnn_online(model, val_loader, test_loader, params_test, scaler, train_args):
+    """Tempo online della GNN: solo mapping(mu) -> solo_decoder -> inverse scaling.
+
+    Restituisce (per-query, batched):
+    - per-query: un forward per ogni mu (come il loop FOM, un mu alla volta)
+    - batched: un unico forward su tutti i mu (come evaluate_pod_nn.py)
+    In entrambi i casi l'inverse scaling e' applicato una volta sola a fine calcolo: con
+    scaling_type=4 lo scaler "per sample" e' fittato su tutti i campioni di test insieme,
+    quindi non si puo' applicare a un campione alla volta (costo comunque trascurabile).
+    I grafi vengono preparati FUORI dal timer, e prima di ogni misura c'e' un warm-up.
+    """
+    n_test = params_test.shape[0]
+    with torch.no_grad():
+        graphs_test = list(val_loader)
+        test_batch = next(iter(test_loader))
+
+        # warm-up (prima chiamata torch paga allocazioni/inizializzazioni)
+        model.solo_decoder(model.mapping(params_test[0:1]), graphs_test[0])
+        model.solo_decoder(model.mapping(params_test), test_batch)
+
+        start = time.perf_counter()
+        outs = [model.solo_decoder(model.mapping(params_test[i:i + 1]), g)
+                for i, g in enumerate(graphs_test)]
+        inverse_scale_output(torch.stack(outs), scaler, train_args)
+        time_per_query = time.perf_counter() - start
+
+        start = time.perf_counter()
+        out = model.solo_decoder(model.mapping(params_test), test_batch)
+        # il decoder restituisce [n_grafi*n_nodi, comp], con i nodi concatenati grafo per grafo
+        inverse_scale_output(out.reshape(n_test, -1, train_args.comp), scaler, train_args)
+        time_batched = time.perf_counter() - start
+
+    return time_per_query, time_batched
 
 
 def main():
@@ -124,25 +166,17 @@ def main():
     params_norm = normalize_minmax(params_np, mu_stats)
     params = torch.tensor(params_norm, dtype=torch.get_default_dtype())
 
+    # testing.evaluate serve SOLO a produrre results_test per gli errori: NON va cronometrato,
+    # perche' oltre a mapping+decoder fa anche l'encoder sulla soluzione vera, l'errore sul
+    # latente, tqdm e np.savetxt dei latenti - niente di tutto cio' e' lavoro online
     print("Valutazione sul test set ...")
-    start_rom = time.time()
     results_test, _, _ = testing.evaluate(VAR_test, model, val_loader, params, HyperParams, test_snapshots)
-    time_rom = time.time() - start_rom
 
-    # diagnostico: stesso identico calcolo (mapping(mu) -> solo_decoder), ma in UN SOLO
-    # forward pass su tutti i 150 grafi di test uniti in un unico batch (test_loader, non
-    # val_loader a batch_size=1) - serve a isolare quanto tempo di time_rom sopra e' overhead
-    # del loop "un campione alla volta" invece che costo computazionale vero della rete.
-    # Stesso pattern usato durante il training (che processa tutto il train set in un batch).
-    with torch.no_grad():
-        test_batch = next(iter(test_loader))
-        params_test = params[test_snapshots, :]
-        start_batched = time.time()
-        z_map_batched = model.mapping(params_test)
-        _ = model.solo_decoder(z_map_batched, test_batch)
-        time_rom_batched = time.time() - start_batched
-    print(f"Tempo GNN (online, batch unico invece di {len(test_snapshots)} chiamate separate): "
-          f"{time_rom_batched:.4f} s (vs {time_rom:.4f} s con val_loader a batch_size=1)")
+    time_rom, time_rom_batched = time_gnn_online(
+        model, val_loader, test_loader, params[test_snapshots, :], scaler_test, train_args)
+    print(f"Tempo GNN per-query (mapping+decoder un mu alla volta + inverse scaling): {time_rom:.4f} s")
+    print(f"Tempo GNN batched   (mapping+decoder su tutti i mu in un forward + inverse scaling): "
+          f"{time_rom_batched:.4f} s")
 
     # M_full/A_diff sono in spazio DOF ridotto (Nh, come la POD) - pred/true della GNN
     # vivono su tutti i nodi mesh (convert_to_gca_rom.py li ricostruisce cosi'), quindi
@@ -253,14 +287,16 @@ def main():
     print("Misurazione tempo FOM online (assemble_control_matrix + solve_otd) per confronto speedup ...")
     start_fom = time.time()
     for mu1_i, mu2_i, mu_u_i in zip(mu1_test, mu2_test, mu_u_test):
-        C = assemble_control_matrix(mesh_data, node_to_dof, mu_u_i)
+        C = assemble_control_matrix(mesh_data, node_to_dof, mu_u_i, **get_control_kwargs(config))
         solve_otd(operators, C, dirichlet_data, mu1_i, mu2_i, alpha)
     time_fom = time.time() - start_fom
 
     n_test = len(test_snapshots)
     print(f"Tempo FOM (online, {n_test} campioni): {time_fom:.3f} s")
-    print(f"Tempo GNN (online, {n_test} campioni): {time_rom:.3f} s")
-    print(f"Speedup: {time_fom / time_rom:.1f}x")
+    print(f"Tempo GNN per-query (online, {n_test} campioni): {time_rom:.3f} s")
+    print(f"Tempo GNN batched   (online, {n_test} campioni): {time_rom_batched:.3f} s")
+    print(f"Speedup per-query: {time_fom / time_rom:.1f}x")
+    print(f"Speedup batched:   {time_fom / time_rom_batched:.1f}x")
 
 
 if __name__ == "__main__":

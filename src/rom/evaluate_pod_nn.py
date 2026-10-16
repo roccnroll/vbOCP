@@ -24,7 +24,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.full_order.mesh import load_mesh
-from src.full_order.assembly import assemble_operators, assemble_control_matrix, assemble_dirichlet_and_source
+from src.full_order.assembly import assemble_operators, assemble_control_matrix, assemble_dirichlet_and_source, get_control_kwargs
 from src.full_order.solve import solve_otd
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.dl.common import FFNN, normalize_minmax, denormalize_standard
@@ -140,7 +140,7 @@ def main():
     print("Misurazione tempo FOM online (assemble_control_matrix + solve_otd) per confronto speedup ...")
     start_fom = time.time()
     for i in range(n_test):
-        C = assemble_control_matrix(mesh_data, node_to_dof, mu_u[i])
+        C = assemble_control_matrix(mesh_data, node_to_dof, mu_u[i], **get_control_kwargs(config))
         solve_otd(operators, C, dirichlet_data, mu1[i], mu2[i], alpha)
     time_fom = time.time() - start_fom
 

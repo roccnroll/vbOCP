@@ -33,7 +33,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.full_order.mesh import load_mesh
-from src.full_order.assembly import assemble_operators, assemble_control_matrix, assemble_dirichlet_and_source
+from src.full_order.assembly import assemble_operators, assemble_control_matrix, assemble_dirichlet_and_source, get_control_kwargs
 from src.full_order.solve import solve_otd
 from src.rom.inner_product import assemble_full_mass_matrix
 from src.gnn.train_gnn import build_combined_dataset, inverse_scale_channel, relative_error, build_hyperparams
@@ -154,7 +154,7 @@ def main():
     A_diff = operators["A_diff"]
 
     print(f"Solve FOM per mu1={args.mu1}, mu2={args.mu2}, mu_u={args.mu_u} ...")
-    C = assemble_control_matrix(mesh_data, node_to_dof, args.mu_u)
+    C = assemble_control_matrix(mesh_data, node_to_dof, args.mu_u, **get_control_kwargs(config))
     y_true_dof, p_true_dof, _ = solve_otd(operators, C, dirichlet_data, args.mu1, args.mu2, alpha)
 
     print("Costruzione del campione singolo ...")

@@ -23,7 +23,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.full_order.mesh import load_mesh
-from src.full_order.assembly import assemble_operators
+from src.full_order.assembly import assemble_operators, get_control_kwargs
 from src.rom.control import extract_boundary_control_trace
 from src.rom.pod import build_pod_basis, project_onto_basis
 
@@ -71,14 +71,16 @@ def main():
     data = np.load(args.snapshots)
     mu_u, U = data["mu_u"], data["U"]
     boundary_x_build, U_boundary = extract_boundary_control_trace(
-        mesh_data, node_to_dof, U, mu_u, control_markers=build_markers)
+        mesh_data, node_to_dof, U, mu_u, control_markers=build_markers,
+        x_offset=get_control_kwargs(config)["x_offset"])
     print(f"Base costruita su marker {build_markers}  nodi di bordo: {U_boundary.shape[0]}")
 
     print(f"Caricamento test set da {args.test_snapshots} ...")
     test_data = np.load(args.test_snapshots)
     mu_u_test, U_test = test_data["mu_u"], test_data["U"]
     boundary_x_eval, U_boundary_test = extract_boundary_control_trace(
-        mesh_data, node_to_dof, U_test, mu_u_test, control_markers=eval_markers)
+        mesh_data, node_to_dof, U_test, mu_u_test, control_markers=eval_markers,
+        x_offset=get_control_kwargs(config)["x_offset"])
     print(f"Valutata su marker {eval_markers}  nodi di bordo: {U_boundary_test.shape[0]}")
 
     # richiede stesse coordinate x (stesso numero e ordine di nodi) tra base e valutazione -

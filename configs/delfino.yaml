@@ -1,0 +1,29 @@
+# Caso "delfino" (Test 2): quadrato unitario con buco a forma di delfino,
+# Strazzullo & Vicini (2023), Fig. 9.
+# Mesh convertita da FEniCS XML con src/full_order/convert_dolphin_mesh.py
+
+problem:
+  domain: [[0, 1], [0, 1]]     # quadrato esterno; il delfino e' un buco interno
+  alpha: 0.07
+  omega_obs:                    # osservazione su tutto Omega
+    - [[0, 1], [0, 1]]
+  # Gamma_C^{mu_u} = lati del delfino (marker 4) con almeno un nodo a x1 >= mu_u
+  # (stesso criterio di Test_1, taglio non conforme); x_ctrl = x_offset + mu_u
+  control_boundary: {markers: [4], x_offset: 0.0}
+
+parameters:
+  mu1: {min: 6, max: 20}         # Peclet
+  mu2: {min: 0.5, max: 3}        # stato desiderato costante
+  mu_u: {min: 0.27, max: 0.74}   # min/max x1 del bordo del delfino
+
+boundary_markers:
+  0: {segment: "interno",                       type: none}
+  1: {segment: "lati quadrato y=0, y=1, x=0",   type: strong, value: "y=1,p=0", note: "Dirichlet (Gamma_D)"}
+  2: {segment: "lato quadrato x=1",             type: weak,   note: "Neumann omogeneo"}
+  4: {segment: "bordo del delfino (Gamma_ib)",  type: weak,   note: "Neumann; controllo su Gamma_C (x1 > mu_u)"}
+
+mesh:
+  path: data/meshes/delfino_csv
+  source: data/meshes/delfino/data/mesh_dolphin.xml
+  n_nodes: 2868
+  n_triangles: 5400

@@ -23,6 +23,10 @@ data/snapshots/*
 !data/meshes/test1_uniform_corner_refined_ctrl/
 !data/meshes/test1_uniform_corner_refined_ctrl/*.csv
 
+# eccezione: mesh del Test 2 (delfino), convertita in CSV da convert_dolphin_mesh.py (~1MB)
+!data/meshes/delfino_csv/
+!data/meshes/delfino_csv/*.csv
+
 # GNN: .mat generati da convert_to_gca_rom.py (rigenerabili dagli snapshot) - NON i
 # pesi allenati in data/gnn/models/, quelli si tengono nel repo (~40 min di training)
 data/gnn/*.mat
@@ -37,3 +41,11 @@ venv/
 # Output generati da notebook/script (plot, immagini)
 notebooks/output/
 notebooks/*.png
+
+# Test 2 (delfino): dati generati ignorati, come per il Test 1 (restano i pesi allenati)
+data/delfino/snapshots/*
+!data/delfino/snapshots/*_nn.pt
+!data/delfino/snapshots/*_nn.norm.npz
+!data/delfino/snapshots/*_nn.loss.npy
+!data/delfino/snapshots/*_nn.val_loss.npy
+data/delfino/gnn/*.mat

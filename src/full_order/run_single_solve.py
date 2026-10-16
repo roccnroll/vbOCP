@@ -15,6 +15,7 @@ from src.full_order.mesh import load_mesh
 from src.full_order.assembly import (
     assemble_operators,
     assemble_control_matrix,
+    get_control_kwargs,
     assemble_dirichlet_and_source,
 )
 from src.full_order.solve import solve_otd
@@ -88,6 +89,7 @@ def main():
     boundary_markers = config["boundary_markers"]
     omega_obs_regions = config["problem"]["omega_obs"]
     alpha = config["problem"]["alpha"]
+    ctrl_kwargs = get_control_kwargs(config)
 
     print(f"Caricamento mesh da {mesh_dir} ...")
     mesh_data = load_mesh(mesh_dir, boundary_markers)
@@ -98,7 +100,7 @@ def main():
     dirichlet_data = assemble_dirichlet_and_source(mesh_data, omega_obs_regions)
 
     print(f"Assembly matrice di controllo C(mu_u={args.mu_u}) ...")
-    C = assemble_control_matrix(mesh_data, operators["node_to_dof"], args.mu_u)
+    C = assemble_control_matrix(mesh_data, operators["node_to_dof"], args.mu_u, **ctrl_kwargs)
 
     print(f"Solve OTD per mu1={args.mu1}, mu2={args.mu2}, mu_u={args.mu_u} ...")
     y, p, u = solve_otd(operators, C, dirichlet_data, args.mu1, args.mu2, alpha)

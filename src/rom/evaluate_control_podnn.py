@@ -22,7 +22,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from src.full_order.mesh import load_mesh
-from src.full_order.assembly import assemble_operators
+from src.full_order.assembly import assemble_operators, get_control_kwargs
 from src.rom.control import extract_boundary_control_trace
 from src.dl.common import FFNN, normalize_minmax, denormalize_standard
 
@@ -73,7 +73,7 @@ def main():
     mu1, mu2, mu_u, U_true = test_data["mu1"], test_data["mu2"], test_data["mu_u"], test_data["U"]
 
     print("Estrazione traccia di controllo vera (test set) ...")
-    boundary_x_test, U_boundary_true = extract_boundary_control_trace(mesh_data, node_to_dof, U_true, mu_u)
+    boundary_x_test, U_boundary_true = extract_boundary_control_trace(mesh_data, node_to_dof, U_true, mu_u, **get_control_kwargs(config))
 
     # coerenza: la traccia di bordo deve avere gli stessi nodi (stessa mesh) del training
     if not np.allclose(boundary_x_test, model_data["boundary_x"]):

@@ -1,7 +1,7 @@
 import numpy as np
 
 
-def extract_boundary_control_trace(mesh_data, node_to_dof, U_snapshots, mu_u_samples, control_markers=(8, 10)):
+def extract_boundary_control_trace(mesh_data, node_to_dof, U_snapshots, mu_u_samples, control_markers=(8, 10), x_offset=1.0):
     """Estrae la traccia di u sui nodi di bordo dove puo' esserci controllo, mascherata a zero fuori Gamma_C.
 
     u e' per definizione dy/dn (flusso al bordo dello stato), non un campo di
@@ -15,6 +15,7 @@ def extract_boundary_control_trace(mesh_data, node_to_dof, U_snapshots, mu_u_sam
         U_snapshots: array (Nh, n_samples) - u=p/alpha su tutti i DOF liberi
         mu_u_samples: array (n_samples,) - mu_u di ciascuno snapshot
         control_markers: marker dei lati dove passa x_ctrl (8, 10 per Test_1)
+        x_offset: x_ctrl = x_offset + mu_u (1.0 per Test_1, 0.0 per il delfino)
 
     Returns:
         boundary_x: array (n_boundary_nodes,) coordinate x, ordinate
@@ -46,7 +47,7 @@ def extract_boundary_control_trace(mesh_data, node_to_dof, U_snapshots, mu_u_sam
 
     # maschera: zero dove x < x_ctrl(mu_u) - u e' zero li' per definizione (dy/dn=0 su Gamma_N)
     # stessa tolleranza di assemble_control_matrix, per coerenza sui nodi allineati a x_ctrl
-    x_ctrl = 1.0 + mu_u_samples  # (n_samples,)
+    x_ctrl = x_offset + mu_u_samples  # (n_samples,)
     mask = boundary_x[:, None] >= x_ctrl[None, :] - 1e-10  # (n_boundary_nodes, n_samples)
     U_boundary = U_boundary * mask
 

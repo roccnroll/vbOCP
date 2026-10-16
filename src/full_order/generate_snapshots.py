@@ -27,13 +27,14 @@ from src.full_order.mesh import load_mesh
 from src.full_order.assembly import (
     assemble_operators,
     assemble_control_matrix,
+    get_control_kwargs,
     assemble_dirichlet_and_source,
 )
 from src.full_order.solve import solve_otd
 
 
-def get_boundary_mu_u_candidates(mesh_data, control_markers=(8, 10)):
-    """Coordinate x (traslate in mu_u = x-1) dei nodi di bordo su cui puo' cadere x_ctrl.
+def get_boundary_mu_u_candidates(mesh_data, control_markers=(8, 10), x_offset=1.0):
+    """Coordinate x (traslate in mu_u = x - x_offset) dei nodi di bordo su cui puo' cadere x_ctrl.
 
     Stesso pattern di scansione marker usato in assemble_control_matrix, ma qui
     serve solo per elencare i nodi candidati, non per assemblare nulla.
@@ -43,7 +44,7 @@ def get_boundary_mu_u_candidates(mesh_data, control_markers=(8, 10)):
         control_markers: marker dei lati dove passa la soglia x_ctrl (8, 10 per Test_1)
 
     Returns:
-        array di mu_u candidati (x_nodo - 1), ordinati, senza duplicati
+        array di mu_u candidati (x_nodo - x_offset), ordinati, senza duplicati
     """
     mesh = mesh_data["mesh"]
 
@@ -57,7 +58,7 @@ def get_boundary_mu_u_candidates(mesh_data, control_markers=(8, 10)):
         for n in mesh.cell1_d_extremes(e):
             candidate_x.add(node_coords_x[n])
 
-    mu_u_candidates = np.sort(np.array(sorted(candidate_x)) - 1.0)
+    mu_u_candidates = np.sort(np.array(sorted(candidate_x)) - x_offset)
     return mu_u_candidates
 
 
@@ -100,6 +101,7 @@ def main():
     omega_obs_regions = config["problem"]["omega_obs"]
     alpha = config["problem"]["alpha"]
     p = config["parameters"]
+    ctrl_kwargs = get_control_kwargs(config)
 
     print(f"Caricamento mesh da {mesh_dir} ...")
     mesh_data = load_mesh(mesh_dir, boundary_markers)
@@ -127,7 +129,7 @@ def main():
         mu2_samples = rng.uniform(p["mu2"]["min"], p["mu2"]["max"], n_samples)
 
         if args.align_mu_u_to_mesh:
-            mu_u_candidates = get_boundary_mu_u_candidates(mesh_data)
+            mu_u_candidates = get_boundary_mu_u_candidates(mesh_data, **ctrl_kwargs)
             in_range = (mu_u_candidates >= p["mu_u"]["min"]) & (mu_u_candidates <= p["mu_u"]["max"])
             mu_u_candidates = mu_u_candidates[in_range]
             print(f"mu_u allineato alla mesh: {len(mu_u_candidates)} nodi candidati nel range")
@@ -151,7 +153,7 @@ def main():
         mu1, mu2, mu_u = mu1_samples[i], mu2_samples[i], mu_u_samples[i]
 
         # solo questi due passi dipendono da mu: assemblaggio C(mu_u) e solve OTD
-        C = assemble_control_matrix(mesh_data, node_to_dof, mu_u)
+        C = assemble_control_matrix(mesh_data, node_to_dof, mu_u, **ctrl_kwargs)
         y, pp, u = solve_otd(operators, C, dirichlet_data, mu1, mu2, alpha)
 
         Y[:, i] = y
